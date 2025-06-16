@@ -1,0 +1,32 @@
+[package]
+name = "groebner"
+version = "0.1.0"
+edition = "2021"
+authors = ["Stephen Diehl"]
+description = "A Rust library implementing Groebner basis algorithms"
+readme = "README.md"
+repository = "https://github.com/sdiehl/groebner"
+homepage = "https://github.com/sdiehl/groebner"
+documentation = "https://docs.rs/groebner"
+license = "MIT"
+keywords = ["mathematics", "algebra", "polynomial", "groebner", "basis"]
+categories = ["science", "mathematics"]
+rust-version = "1.70.0"
+include = [
+    "src/**/*",
+    "examples/**/*",
+    "tests/**/*",
+    "benches/**/*",
+    "README.md",
+    "LICENSE",
+    "Cargo.toml",
+]
+exclude = [
+    ".github/**/*",
+]
+
+[lib]
+name = "groebner"
+path = "src/lib.rs"
+
+[dependencies]
