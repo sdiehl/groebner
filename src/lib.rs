@@ -605,7 +605,7 @@ mod tests {
         let order = MonomialOrder::Lex;
         let f1 = create_poly_from_spec(vec![(1.0, [1, 0])], order); // x
         let f2 = create_poly_from_spec(vec![(1.0, [0, 1])], order); // y
-        // This is already a Groebner basis {x, y}
+                                                                    // This is already a Groebner basis {x, y}
         let initial_polys = vec![f1.clone(), f2.clone()];
         let gb = buchberger(initial_polys, order);
 
