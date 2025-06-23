@@ -55,7 +55,9 @@ impl From<crate::polynomial::PolynomialError> for GroebnerError {
 impl fmt::Display for GroebnerError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            GroebnerError::NoLeadingMonomial(idx) => write!(f, "Polynomial at index {idx} has no leading monomial"),
+            GroebnerError::NoLeadingMonomial(idx) => {
+                write!(f, "Polynomial at index {idx} has no leading monomial")
+            }
             GroebnerError::EmptyInput => write!(f, "Input polynomial list is empty"),
             GroebnerError::Polynomial(e) => write!(f, "Polynomial error: {e}"),
         }
@@ -79,8 +81,12 @@ impl CriticalPair {
         poly_i: &Polynomial<F>,
         poly_j: &Polynomial<F>,
     ) -> Result<Self, GroebnerError> {
-        let lm_i = poly_i.leading_monomial().ok_or(GroebnerError::NoLeadingMonomial(i))?;
-        let lm_j = poly_j.leading_monomial().ok_or(GroebnerError::NoLeadingMonomial(j))?;
+        let lm_i = poly_i
+            .leading_monomial()
+            .ok_or(GroebnerError::NoLeadingMonomial(i))?;
+        let lm_j = poly_j
+            .leading_monomial()
+            .ok_or(GroebnerError::NoLeadingMonomial(j))?;
         let lcm = lm_i.lcm(lm_j);
         let degree = lcm.degree();
         Ok(Self { i, j, lcm, degree })
@@ -165,8 +171,12 @@ pub fn groebner_basis<F: Field>(
         }
         let poly_i = &basis[pair.i];
         let poly_j = &basis[pair.j];
-        let lm_i = poly_i.leading_monomial().ok_or(GroebnerError::NoLeadingMonomial(pair.i))?;
-        let lm_j = poly_j.leading_monomial().ok_or(GroebnerError::NoLeadingMonomial(pair.j))?;
+        let lm_i = poly_i
+            .leading_monomial()
+            .ok_or(GroebnerError::NoLeadingMonomial(pair.i))?;
+        let lm_j = poly_j
+            .leading_monomial()
+            .ok_or(GroebnerError::NoLeadingMonomial(pair.j))?;
         let product = lm_i.multiply(lm_j);
         if pair.lcm == product {
             continue;
@@ -259,7 +269,9 @@ fn minimize_basis<F: Field>(basis: &mut Vec<Polynomial<F>>) {
 pub fn is_groebner_basis<F: Field>(basis: &[Polynomial<F>]) -> Result<bool, GroebnerError> {
     for i in 0..basis.len() {
         for j in i + 1..basis.len() {
-            let s_poly = basis[i].s_polynomial(&basis[j]).map_err(GroebnerError::from)?;
+            let s_poly = basis[i]
+                .s_polynomial(&basis[j])
+                .map_err(GroebnerError::from)?;
             let reduced = s_poly.reduce(basis).map_err(GroebnerError::from)?;
             if !reduced.is_zero() {
                 return Ok(false);

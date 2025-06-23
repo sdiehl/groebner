@@ -7,6 +7,7 @@
 //! ```
 //! use num_rational::BigRational;
 //! use groebner::{groebner_basis, Polynomial, MonomialOrder, Term, Monomial};
+//! use groebner::is_groebner_basis;
 //! // x^2 - y, xy - 1
 //! let f1 = Polynomial::new(
 //!     vec![
@@ -35,7 +36,7 @@ pub mod monomial;
 pub mod polynomial;
 
 pub use field::Field;
-pub use groebner::{groebner_basis, is_groebner_basis};
+pub use groebner::{groebner_basis, is_groebner_basis, GroebnerError};
 pub use monomial::{Monomial, MonomialOrder};
 pub use polynomial::{Polynomial, Term};
 

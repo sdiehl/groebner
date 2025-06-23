@@ -50,6 +50,6 @@ fn main() {
     // Print the Groebner basis
     println!("Groebner basis:");
     for (i, poly) in basis.iter().enumerate() {
-        println!("g{}: {}", i + 1, poly);
+        println!("g{}: {:?}", i + 1, poly);
     }
 }

@@ -59,7 +59,9 @@ impl fmt::Display for PolynomialError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             PolynomialError::NoLeadingMonomial => write!(f, "Polynomial has no leading monomial"),
-            PolynomialError::NoLeadingCoefficient => write!(f, "Polynomial has no leading coefficient"),
+            PolynomialError::NoLeadingCoefficient => {
+                write!(f, "Polynomial has no leading coefficient")
+            }
             PolynomialError::DivisionFailed => write!(f, "Division of monomials failed"),
         }
     }
@@ -183,10 +185,18 @@ impl<F: Field> Polynomial<F> {
         if self.is_zero() || other.is_zero() {
             return Ok(Self::zero(self.nvars, self.order));
         }
-        let lm1 = self.leading_monomial().ok_or(PolynomialError::NoLeadingMonomial)?;
-        let lm2 = other.leading_monomial().ok_or(PolynomialError::NoLeadingMonomial)?;
-        let lc1 = self.leading_coefficient().ok_or(PolynomialError::NoLeadingCoefficient)?;
-        let lc2 = other.leading_coefficient().ok_or(PolynomialError::NoLeadingCoefficient)?;
+        let lm1 = self
+            .leading_monomial()
+            .ok_or(PolynomialError::NoLeadingMonomial)?;
+        let lm2 = other
+            .leading_monomial()
+            .ok_or(PolynomialError::NoLeadingMonomial)?;
+        let lc1 = self
+            .leading_coefficient()
+            .ok_or(PolynomialError::NoLeadingCoefficient)?;
+        let lc2 = other
+            .leading_coefficient()
+            .ok_or(PolynomialError::NoLeadingCoefficient)?;
         let lcm = lm1.lcm(lm2);
         let m1 = lcm.divide(lm1).ok_or(PolynomialError::DivisionFailed)?;
         let m2 = lcm.divide(lm2).ok_or(PolynomialError::DivisionFailed)?;
@@ -202,9 +212,15 @@ impl<F: Field> Polynomial<F> {
                 for divisor in basis {
                     if let Some(div_leading) = divisor.leading_monomial() {
                         if div_leading.divides(leading_mono) {
-                            let quotient_mono = leading_mono.divide(div_leading).ok_or(PolynomialError::DivisionFailed)?;
-                            let lc_remainder = remainder.leading_coefficient().ok_or(PolynomialError::NoLeadingCoefficient)?;
-                            let lc_divisor = divisor.leading_coefficient().ok_or(PolynomialError::NoLeadingCoefficient)?;
+                            let quotient_mono = leading_mono
+                                .divide(div_leading)
+                                .ok_or(PolynomialError::DivisionFailed)?;
+                            let lc_remainder = remainder
+                                .leading_coefficient()
+                                .ok_or(PolynomialError::NoLeadingCoefficient)?;
+                            let lc_divisor = divisor
+                                .leading_coefficient()
+                                .ok_or(PolynomialError::NoLeadingCoefficient)?;
                             let quotient_coeff = lc_remainder.multiply(&lc_divisor.inverse());
                             let subtrahend = divisor
                                 .multiply_monomial(&quotient_mono)
