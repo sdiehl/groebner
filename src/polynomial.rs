@@ -6,14 +6,15 @@
 //!
 //! # Example
 //! ```
-//! use groebner::{Polynomial, Term, Monomial, Rational, MonomialOrder};
+//! use num_rational::BigRational;
+//! use groebner::{Polynomial, Term, Monomial, MonomialOrder};
 //! let p1 = Polynomial::new(
-//!     vec![Term::new(Rational::new(2, 1), Monomial::new(vec![1, 0]))],
+//!     vec![Term::new(BigRational::new(2.into(), 1.into()), Monomial::new(vec![1, 0]))],
 //!     2,
 //!     MonomialOrder::Lex
 //! );
 //! let p2 = Polynomial::new(
-//!     vec![Term::new(Rational::new(3, 1), Monomial::new(vec![0, 1]))],
+//!     vec![Term::new(BigRational::new(3.into(), 1.into()), Monomial::new(vec![0, 1]))],
 //!     2,
 //!     MonomialOrder::Lex
 //! );

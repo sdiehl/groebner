@@ -3,6 +3,7 @@
 ## 1. Mathematical Structures & Generalizations
 - [ ] Support for Finite Fields (e.g., GF(p))
     - Add field implementations for finite fields to enable computations over fields of prime order.
+    - Use https://github.com/zkcrypto/ff for finite fields.
 - [ ] Support for Multivariate Polynomial Rings over Arbitrary Fields
     - Generalize code to allow user-defined field types and provide built-in options.
 - [ ] Support for Polynomial Rings with Parameters (Coefficient Rings)

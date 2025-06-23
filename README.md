@@ -2,6 +2,8 @@
 
 This is an implementation of the F4 and Buchberger algorithm for computing Groebner bases in Rust.
 
+See [examples/basis.rs](examples/basis.rs) for a usage example.
+
 ## Usage
 
 ```bash

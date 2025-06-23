@@ -1,18 +1,18 @@
 extern crate groebner;
-use groebner::{
-    groebner_basis, is_groebner_basis, Monomial, MonomialOrder, Polynomial, Rational, Term,
-};
+use groebner::{groebner_basis, is_groebner_basis, Monomial, MonomialOrder, Polynomial, Term};
+use num_bigint::BigInt;
+use num_rational::BigRational;
 
 /// Helper function to create polynomials for testing
 fn create_polynomial(
     terms: Vec<(i32, i32, Vec<u32>)>, // (numerator, denominator, exponents)
     nvars: usize,
     order: MonomialOrder,
-) -> Polynomial<Rational> {
-    let term_vec: Vec<Term<Rational>> = terms
+) -> Polynomial<BigRational> {
+    let term_vec: Vec<Term<BigRational>> = terms
         .into_iter()
         .map(|(num, den, exp)| {
-            let coeff = Rational::new(num as i64, den as i64);
+            let coeff = BigRational::new(num.into(), den.into());
             let monomial = Monomial::new(exp);
             Term::new(coeff, monomial)
         })
@@ -26,11 +26,11 @@ fn create_int_polynomial(
     terms: Vec<(i32, Vec<u32>)>, // (coefficient, exponents)
     nvars: usize,
     order: MonomialOrder,
-) -> Polynomial<Rational> {
-    let term_vec: Vec<Term<Rational>> = terms
+) -> Polynomial<BigRational> {
+    let term_vec: Vec<Term<BigRational>> = terms
         .into_iter()
         .map(|(coeff, exp)| {
-            let rational_coeff = Rational::new(coeff as i64, 1);
+            let rational_coeff = BigRational::new(coeff.into(), 1.into());
             let monomial = Monomial::new(exp);
             Term::new(rational_coeff, monomial)
         })
@@ -861,7 +861,7 @@ mod tests {
 
     #[test]
     fn test_empty_and_single_polynomial() {
-        let empty_basis = groebner_basis::<Rational>(vec![], MonomialOrder::Lex, true);
+        let empty_basis = groebner_basis::<BigRational>(vec![], MonomialOrder::Lex, true);
         assert!(empty_basis.is_empty());
 
         let single = create_polynomial(vec![(1, 1, vec![1, 0])], 2, MonomialOrder::Lex);
@@ -1352,12 +1352,12 @@ mod tests {
         );
         let basis = groebner_basis(vec![f1, f2], MonomialOrder::Lex, true);
         // Should be the unit ideal (contains 1)
-        assert!(basis.iter().any(|p| p.terms.iter().any(|t| t
-            .monomial
-            .exponents
-            .iter()
-            .all(|&e| e == 0)
-            && t.coefficient == Rational::new(1, 1))));
+        assert!(basis.iter().any(|p| {
+            p.terms.iter().any(|t| {
+                t.monomial.exponents.iter().all(|&e| e == 0)
+                    && t.coefficient == BigRational::new(BigInt::from(1), BigInt::from(1))
+            })
+        }));
     }
 
     #[test]
