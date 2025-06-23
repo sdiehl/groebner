@@ -25,7 +25,7 @@
     - Allow incremental updates to the basis when new generators are added.
 
 ## 3. Usability & API Improvements
-- [ ] Replace panics with Result-based error handling.
+- [x] Replace panics with Result-based error handling.
 - [ ] Custom Monomial Orders
     - Allow users to define custom monomial orders.
 - [ ] Pretty Printing and LaTeX Output

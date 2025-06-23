@@ -9,8 +9,8 @@
 //!
 //! # Example
 //! ```
-//! use num_rational::BigRational;
 //! use groebner::Field;
+//! use num_rational::BigRational;
 //! let a = BigRational::new(1.into(), 2.into());
 //! let b = BigRational::new(1.into(), 3.into());
 //! let sum = a.add(&b);
@@ -26,13 +26,17 @@ pub trait Field: Clone + PartialEq + fmt::Debug + fmt::Display {
     fn one() -> Self;
     fn is_zero(&self) -> bool;
     fn is_one(&self) -> bool;
+    #[must_use]
     fn add(&self, other: &Self) -> Self;
+    #[must_use]
     fn subtract(&self, other: &Self) -> Self;
+    #[must_use]
     fn multiply(&self, other: &Self) -> Self;
+    #[must_use]
     fn negate(&self) -> Self;
-    fn inverse(&self) -> Self;
-    fn divide(&self, other: &Self) -> Self {
-        self.multiply(&other.inverse())
+    fn inverse(&self) -> Option<Self>;
+    fn divide(&self, other: &Self) -> Option<Self> {
+        other.inverse().map(|inv| self.multiply(&inv))
     }
 }
 
@@ -61,10 +65,11 @@ impl Field for BigRational {
     fn negate(&self) -> Self {
         -self
     }
-    fn inverse(&self) -> Self {
+    fn inverse(&self) -> Option<Self> {
         if self.is_zero() {
-            panic!("Division by zero");
+            None
+        } else {
+            Some(self.recip())
         }
-        self.recip()
     }
 }

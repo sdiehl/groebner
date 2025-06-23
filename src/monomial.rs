@@ -9,7 +9,10 @@
 //! use groebner::{Monomial, MonomialOrder};
 //! let m1 = Monomial::new(vec![2, 1]); // x0^2 * x1
 //! let m2 = Monomial::new(vec![1, 2]); // x0 * x1^2
-//! assert_eq!(m1.compare(&m2, MonomialOrder::Lex), std::cmp::Ordering::Greater);
+//! assert_eq!(
+//!     m1.compare(&m2, MonomialOrder::Lex),
+//!     std::cmp::Ordering::Greater
+//! );
 //! ```
 
 use std::cmp::Ordering;
