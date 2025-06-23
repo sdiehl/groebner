@@ -37,3 +37,6 @@ num-traits = "0.2"
 [[example]]
 name = "basic"
 path = "examples/basic.rs"
+
+[lints.clippy]
+unwrap_used = "deny"

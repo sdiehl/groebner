@@ -24,8 +24,9 @@
 //!     2,
 //!     MonomialOrder::Lex
 //! );
-//! let basis = groebner_basis(vec![f1, f2], MonomialOrder::Lex, true);
+//! let basis = groebner_basis(vec![f1, f2], MonomialOrder::Lex, true).unwrap();
 //! assert!(!basis.is_empty());
+//! assert!(is_groebner_basis(&basis).unwrap());
 //! ```
 
 pub mod field;
