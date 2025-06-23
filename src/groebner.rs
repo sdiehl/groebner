@@ -10,26 +10,43 @@
 //!
 //! # Example
 //! ```
+//! use groebner::{groebner_basis, Monomial, MonomialOrder, Polynomial, Term};
 //! use num_rational::BigRational;
-//! use groebner::{groebner_basis, Polynomial, MonomialOrder, Term, Monomial};
 //! let f1 = Polynomial::new(
 //!     vec![
-//!         Term::new(BigRational::new(1.into(), 1.into()), Monomial::new(vec![2, 0])),
-//!         Term::new(BigRational::new((-1).into(), 1.into()), Monomial::new(vec![0, 1]))
+//!         Term::new(
+//!             BigRational::new(1.into(), 1.into()),
+//!             Monomial::new(vec![2, 0]),
+//!         ),
+//!         Term::new(
+//!             BigRational::new((-1).into(), 1.into()),
+//!             Monomial::new(vec![0, 1]),
+//!         ),
 //!     ],
 //!     2,
-//!     MonomialOrder::Lex
+//!     MonomialOrder::Lex,
 //! );
 //! let f2 = Polynomial::new(
 //!     vec![
-//!         Term::new(BigRational::new(1.into(), 1.into()), Monomial::new(vec![1, 1])),
-//!         Term::new(BigRational::new((-1).into(), 1.into()), Monomial::new(vec![0, 0]))
+//!         Term::new(
+//!             BigRational::new(1.into(), 1.into()),
+//!             Monomial::new(vec![1, 1]),
+//!         ),
+//!         Term::new(
+//!             BigRational::new((-1).into(), 1.into()),
+//!             Monomial::new(vec![0, 0]),
+//!         ),
 //!     ],
 //!     2,
-//!     MonomialOrder::Lex
+//!     MonomialOrder::Lex,
 //! );
-//! let basis = groebner_basis(vec![f1, f2], MonomialOrder::Lex, true);
-//! assert!(!basis.is_empty());
+//! let basis_result = groebner_basis(vec![f1, f2], MonomialOrder::Lex, true);
+//! match basis_result {
+//!     Ok(basis) => {
+//!         assert!(!basis.is_empty());
+//!     }
+//!     Err(e) => panic!("Groebner basis computation failed: {}", e),
+//! }
 //! ```
 
 use crate::field::Field;
@@ -37,6 +54,34 @@ use crate::monomial::Monomial;
 use crate::polynomial::Polynomial;
 use std::cmp::Ordering;
 use std::collections::BinaryHeap;
+use std::fmt;
+
+#[derive(Debug)]
+pub enum GroebnerError {
+    NoLeadingMonomial(usize),
+    EmptyInput,
+    Polynomial(crate::polynomial::PolynomialError),
+}
+
+impl From<crate::polynomial::PolynomialError> for GroebnerError {
+    fn from(e: crate::polynomial::PolynomialError) -> Self {
+        GroebnerError::Polynomial(e)
+    }
+}
+
+impl fmt::Display for GroebnerError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            GroebnerError::NoLeadingMonomial(idx) => {
+                write!(f, "Polynomial at index {idx} has no leading monomial")
+            }
+            GroebnerError::EmptyInput => write!(f, "Input polynomial list is empty"),
+            GroebnerError::Polynomial(e) => write!(f, "Polynomial error: {e}"),
+        }
+    }
+}
+
+impl std::error::Error for GroebnerError {}
 
 #[derive(Debug, Clone)]
 struct CriticalPair {
@@ -47,17 +92,21 @@ struct CriticalPair {
 }
 
 impl CriticalPair {
-    fn new(
+    fn new<F: Field>(
         i: usize,
         j: usize,
-        poly_i: &Polynomial<impl Field>,
-        poly_j: &Polynomial<impl Field>,
-    ) -> Self {
-        let lm_i = poly_i.leading_monomial().unwrap();
-        let lm_j = poly_j.leading_monomial().unwrap();
+        poly_i: &Polynomial<F>,
+        poly_j: &Polynomial<F>,
+    ) -> Result<Self, GroebnerError> {
+        let lm_i = poly_i
+            .leading_monomial()
+            .ok_or(GroebnerError::NoLeadingMonomial(i))?;
+        let lm_j = poly_j
+            .leading_monomial()
+            .ok_or(GroebnerError::NoLeadingMonomial(j))?;
         let lcm = lm_i.lcm(lm_j);
         let degree = lcm.degree();
-        Self { i, j, lcm, degree }
+        Ok(Self { i, j, lcm, degree })
     }
 }
 
@@ -82,36 +131,53 @@ impl Ord for CriticalPair {
 ///
 /// # Example
 /// ```
+/// use groebner::{groebner_basis, Monomial, MonomialOrder, Polynomial, Term};
 /// use num_rational::BigRational;
-/// use groebner::{groebner_basis, Polynomial, MonomialOrder, Term, Monomial};
 /// // x^2 - y, xy - 1
 /// let f1 = Polynomial::new(
 ///     vec![
-///         Term::new(BigRational::new(1.into(), 1.into()), Monomial::new(vec![2, 0])),
-///         Term::new(BigRational::new((-1).into(), 1.into()), Monomial::new(vec![0, 1]))
+///         Term::new(
+///             BigRational::new(1.into(), 1.into()),
+///             Monomial::new(vec![2, 0]),
+///         ),
+///         Term::new(
+///             BigRational::new((-1).into(), 1.into()),
+///             Monomial::new(vec![0, 1]),
+///         ),
 ///     ],
 ///     2,
-///     MonomialOrder::Lex
+///     MonomialOrder::Lex,
 /// );
 /// let f2 = Polynomial::new(
 ///     vec![
-///         Term::new(BigRational::new(1.into(), 1.into()), Monomial::new(vec![1, 1])),
-///         Term::new(BigRational::new((-1).into(), 1.into()), Monomial::new(vec![0, 0]))
+///         Term::new(
+///             BigRational::new(1.into(), 1.into()),
+///             Monomial::new(vec![1, 1]),
+///         ),
+///         Term::new(
+///             BigRational::new((-1).into(), 1.into()),
+///             Monomial::new(vec![0, 0]),
+///         ),
 ///     ],
 ///     2,
-///     MonomialOrder::Lex
+///     MonomialOrder::Lex,
 /// );
-/// let basis = groebner_basis(vec![f1, f2], MonomialOrder::Lex, true);
-/// assert!(!basis.is_empty());
+/// let basis_result = groebner_basis(vec![f1, f2], MonomialOrder::Lex, true);
+/// match basis_result {
+///     Ok(basis) => {
+///         assert!(!basis.is_empty());
+///     }
+///     Err(e) => panic!("Groebner basis computation failed: {}", e),
+/// }
 /// ```
 #[allow(clippy::needless_range_loop)]
 pub fn groebner_basis<F: Field>(
     polynomials: Vec<Polynomial<F>>,
     _order: crate::monomial::MonomialOrder,
     canonicalize: bool,
-) -> Vec<Polynomial<F>> {
+) -> Result<Vec<Polynomial<F>>, GroebnerError> {
     if polynomials.is_empty() {
-        return Vec::new();
+        return Err(GroebnerError::EmptyInput);
     }
     let _nvars = polynomials[0].nvars;
     let mut basis: Vec<Polynomial<F>> = polynomials
@@ -120,12 +186,17 @@ pub fn groebner_basis<F: Field>(
         .map(|p| p.make_monic())
         .collect();
     if basis.is_empty() {
-        return Vec::new();
+        return Err(GroebnerError::EmptyInput);
     }
     let mut pairs = BinaryHeap::new();
     for i in 0..basis.len() {
         for j in i + 1..basis.len() {
-            pairs.push(CriticalPair::new(i, j, &basis[i], &basis[j]));
+            if let Ok(pair) = CriticalPair::new(i, j, &basis[i], &basis[j]) {
+                pairs.push(pair);
+            } else {
+                // If any pair cannot be created, return the error
+                return Err(GroebnerError::NoLeadingMonomial(i));
+            }
         }
     }
     while let Some(pair) = pairs.pop() {
@@ -134,19 +205,27 @@ pub fn groebner_basis<F: Field>(
         }
         let poly_i = &basis[pair.i];
         let poly_j = &basis[pair.j];
-        let lm_i = poly_i.leading_monomial().unwrap();
-        let lm_j = poly_j.leading_monomial().unwrap();
+        let lm_i = poly_i
+            .leading_monomial()
+            .ok_or(GroebnerError::NoLeadingMonomial(pair.i))?;
+        let lm_j = poly_j
+            .leading_monomial()
+            .ok_or(GroebnerError::NoLeadingMonomial(pair.j))?;
         let product = lm_i.multiply(lm_j);
         if pair.lcm == product {
             continue;
         }
-        let s_poly = poly_i.s_polynomial(poly_j);
-        let reduced = s_poly.reduce(&basis);
+        let s_poly = poly_i.s_polynomial(poly_j).map_err(GroebnerError::from)?;
+        let reduced = s_poly.reduce(&basis).map_err(GroebnerError::from)?;
         if !reduced.is_zero() {
             let monic_reduced = reduced.make_monic();
             let new_index = basis.len();
             for (i, existing) in basis.iter().enumerate() {
-                pairs.push(CriticalPair::new(i, new_index, existing, &monic_reduced));
+                if let Ok(new_pair) = CriticalPair::new(i, new_index, existing, &monic_reduced) {
+                    pairs.push(new_pair);
+                } else {
+                    return Err(GroebnerError::NoLeadingMonomial(i));
+                }
             }
             basis.push(monic_reduced);
         }
@@ -195,7 +274,7 @@ pub fn groebner_basis<F: Field>(
             i += 1;
         }
     }
-    basis
+    Ok(basis)
 }
 
 fn minimize_basis<F: Field>(basis: &mut Vec<Polynomial<F>>) {
@@ -221,15 +300,17 @@ fn minimize_basis<F: Field>(basis: &mut Vec<Polynomial<F>>) {
     }
 }
 
-pub fn is_groebner_basis<F: Field>(basis: &[Polynomial<F>]) -> bool {
+pub fn is_groebner_basis<F: Field>(basis: &[Polynomial<F>]) -> Result<bool, GroebnerError> {
     for i in 0..basis.len() {
         for j in i + 1..basis.len() {
-            let s_poly = basis[i].s_polynomial(&basis[j]);
-            let reduced = s_poly.reduce(basis);
+            let s_poly = basis[i]
+                .s_polynomial(&basis[j])
+                .map_err(GroebnerError::from)?;
+            let reduced = s_poly.reduce(basis).map_err(GroebnerError::from)?;
             if !reduced.is_zero() {
-                return false;
+                return Ok(false);
             }
         }
     }
-    true
+    Ok(true)
 }

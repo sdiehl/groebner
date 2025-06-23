@@ -6,17 +6,23 @@
 //!
 //! # Example
 //! ```
+//! use groebner::{Monomial, MonomialOrder, Polynomial, Term};
 //! use num_rational::BigRational;
-//! use groebner::{Polynomial, Term, Monomial, MonomialOrder};
 //! let p1 = Polynomial::new(
-//!     vec![Term::new(BigRational::new(2.into(), 1.into()), Monomial::new(vec![1, 0]))],
+//!     vec![Term::new(
+//!         BigRational::new(2.into(), 1.into()),
+//!         Monomial::new(vec![1, 0]),
+//!     )],
 //!     2,
-//!     MonomialOrder::Lex
+//!     MonomialOrder::Lex,
 //! );
 //! let p2 = Polynomial::new(
-//!     vec![Term::new(BigRational::new(3.into(), 1.into()), Monomial::new(vec![0, 1]))],
+//!     vec![Term::new(
+//!         BigRational::new(3.into(), 1.into()),
+//!         Monomial::new(vec![0, 1]),
+//!     )],
 //!     2,
-//!     MonomialOrder::Lex
+//!     MonomialOrder::Lex,
 //! );
 //! let sum = p1.add(&p2);
 //! assert_eq!(sum.terms.len(), 2);
@@ -47,6 +53,29 @@ pub struct Polynomial<F> {
     pub nvars: usize,
     pub order: MonomialOrder,
 }
+
+#[derive(Debug)]
+pub enum PolynomialError {
+    NoLeadingMonomial,
+    NoLeadingCoefficient,
+    DivisionFailed,
+    DivisionByZero,
+}
+
+impl fmt::Display for PolynomialError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            PolynomialError::NoLeadingMonomial => write!(f, "Polynomial has no leading monomial"),
+            PolynomialError::NoLeadingCoefficient => {
+                write!(f, "Polynomial has no leading coefficient")
+            }
+            PolynomialError::DivisionFailed => write!(f, "Division of monomials failed"),
+            PolynomialError::DivisionByZero => write!(f, "Division by zero"),
+        }
+    }
+}
+
+impl std::error::Error for PolynomialError {}
 
 impl<F: Field> Polynomial<F> {
     pub fn new(mut terms: Vec<Term<F>>, nvars: usize, order: MonomialOrder) -> Self {
@@ -100,8 +129,12 @@ impl<F: Field> Polynomial<F> {
     pub fn make_monic(&self) -> Self {
         if let Some(lc) = self.leading_coefficient() {
             if !lc.is_zero() {
-                let inv_lc = lc.inverse();
-                return self.multiply_scalar(&inv_lc);
+                if let Some(inv_lc) = lc.inverse() {
+                    return self.multiply_scalar(&inv_lc);
+                } else {
+                    // Division by zero, return unchanged (should not happen for nonzero polynomials)
+                    return self.clone();
+                }
             }
         }
         self.clone()
@@ -158,24 +191,34 @@ impl<F: Field> Polynomial<F> {
         }
         Self::new(terms, self.nvars, self.order)
     }
-    pub fn s_polynomial(&self, other: &Self) -> Self {
+    pub fn s_polynomial(&self, other: &Self) -> Result<Self, PolynomialError> {
         assert_eq!(self.nvars, other.nvars);
         assert_eq!(self.order, other.order);
         if self.is_zero() || other.is_zero() {
-            return Self::zero(self.nvars, self.order);
+            return Ok(Self::zero(self.nvars, self.order));
         }
-        let lm1 = self.leading_monomial().unwrap();
-        let lm2 = other.leading_monomial().unwrap();
-        let lc1 = self.leading_coefficient().unwrap();
-        let lc2 = other.leading_coefficient().unwrap();
+        let lm1 = self
+            .leading_monomial()
+            .ok_or(PolynomialError::NoLeadingMonomial)?;
+        let lm2 = other
+            .leading_monomial()
+            .ok_or(PolynomialError::NoLeadingMonomial)?;
+        let lc1 = self
+            .leading_coefficient()
+            .ok_or(PolynomialError::NoLeadingCoefficient)?;
+        let lc2 = other
+            .leading_coefficient()
+            .ok_or(PolynomialError::NoLeadingCoefficient)?;
         let lcm = lm1.lcm(lm2);
-        let m1 = lcm.divide(lm1).unwrap();
-        let m2 = lcm.divide(lm2).unwrap();
-        let term1 = self.multiply_monomial(&m1).multiply_scalar(&lc2.inverse());
-        let term2 = other.multiply_monomial(&m2).multiply_scalar(&lc1.inverse());
-        term1.subtract(&term2)
+        let m1 = lcm.divide(lm1).ok_or(PolynomialError::DivisionFailed)?;
+        let m2 = lcm.divide(lm2).ok_or(PolynomialError::DivisionFailed)?;
+        let inv_lc2 = lc2.inverse().ok_or(PolynomialError::DivisionByZero)?;
+        let inv_lc1 = lc1.inverse().ok_or(PolynomialError::DivisionByZero)?;
+        let term1 = self.multiply_monomial(&m1).multiply_scalar(&inv_lc2);
+        let term2 = other.multiply_monomial(&m2).multiply_scalar(&inv_lc1);
+        Ok(term1.subtract(&term2))
     }
-    pub fn reduce(&self, basis: &[Self]) -> Self {
+    pub fn reduce(&self, basis: &[Self]) -> Result<Self, PolynomialError> {
         let mut remainder = self.clone();
         while !remainder.is_zero() {
             let mut reduced = false;
@@ -183,10 +226,19 @@ impl<F: Field> Polynomial<F> {
                 for divisor in basis {
                     if let Some(div_leading) = divisor.leading_monomial() {
                         if div_leading.divides(leading_mono) {
-                            let quotient_mono = leading_mono.divide(div_leading).unwrap();
-                            let lc_remainder = remainder.leading_coefficient().unwrap();
-                            let lc_divisor = divisor.leading_coefficient().unwrap();
-                            let quotient_coeff = lc_remainder.multiply(&lc_divisor.inverse());
+                            let quotient_mono = leading_mono
+                                .divide(div_leading)
+                                .ok_or(PolynomialError::DivisionFailed)?;
+                            let lc_remainder = remainder
+                                .leading_coefficient()
+                                .ok_or(PolynomialError::NoLeadingCoefficient)?;
+                            let lc_divisor = divisor
+                                .leading_coefficient()
+                                .ok_or(PolynomialError::NoLeadingCoefficient)?;
+                            let inv_lc_divisor = lc_divisor
+                                .inverse()
+                                .ok_or(PolynomialError::DivisionByZero)?;
+                            let quotient_coeff = lc_remainder.multiply(&inv_lc_divisor);
                             let subtrahend = divisor
                                 .multiply_monomial(&quotient_mono)
                                 .multiply_scalar(&quotient_coeff);
@@ -201,7 +253,7 @@ impl<F: Field> Polynomial<F> {
                 break;
             }
         }
-        remainder
+        Ok(remainder)
     }
 }
 

@@ -45,11 +45,15 @@ fn main() {
     );
 
     // Compute the Groebner basis
-    let basis = groebner_basis(vec![f, g], order, true);
-
-    // Print the Groebner basis
-    println!("Groebner basis:");
-    for (i, poly) in basis.iter().enumerate() {
-        println!("g{}: {}", i + 1, poly);
+    match groebner_basis(vec![f, g], order, true) {
+        Ok(basis) => {
+            println!("Groebner basis:");
+            for (i, poly) in basis.iter().enumerate() {
+                println!("g{}: {}", i + 1, poly);
+            }
+        }
+        Err(e) => {
+            println!("Error computing Groebner basis: {e}");
+        }
     }
 }

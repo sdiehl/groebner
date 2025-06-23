@@ -10,6 +10,12 @@ See [examples/basic.rs](examples/basic.rs) for a usage example.
 cargo run --release
 ```
 
+To run the example, use:
+§
+```bash
+cargo run --example basic
+```
+
 ## Test Suite
 
 ```bash
