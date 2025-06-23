@@ -1,4 +1,7 @@
-use groebner::*;
+extern crate groebner;
+use groebner::{
+    groebner_basis, is_groebner_basis, Monomial, MonomialOrder, Polynomial, Rational, Term,
+};
 
 /// Helper function to create polynomials for testing
 fn create_polynomial(
@@ -201,7 +204,7 @@ mod tests {
             MonomialOrder::GrLex,
         );
 
-        let expected = vec![
+        let expected = [
             create_polynomial(
                 vec![(1, 1, vec![0, 3, 0]), (-1, 1, vec![0, 0, 2])],
                 3,
@@ -337,7 +340,7 @@ mod tests {
             MonomialOrder::GrLex,
         );
 
-        let _expected = vec![
+        let expected = [
             create_polynomial(
                 vec![(1, 1, vec![2, 0, 0]), (-1, 1, vec![0, 1, 1])],
                 3,
@@ -363,6 +366,9 @@ mod tests {
 
         // Should have 3 polynomials in the basis
         assert_eq!(basis.len(), 3);
+
+        // Compare the computed basis to the expected result
+        assert_eq!(basis, expected);
 
         // Check that the basis contains the expected structure
         // (order may vary but should have x^2, xz, and z^2 terms)
@@ -1385,7 +1391,7 @@ mod tests {
             2,
             MonomialOrder::Lex,
         );
-        let expected = vec![
+        let expected = [
             create_polynomial(
                 vec![(1, 1, vec![1, 0]), (4, 3, vec![0, 2]), (-4, 9, vec![0, 0])],
                 2,
