@@ -52,12 +52,17 @@
 //! ```
 
 pub mod field;
+pub mod grebauer_moller;
 pub mod groebner;
 pub mod monomial;
 pub mod polynomial;
 pub mod sugar;
 
 pub use field::Field;
-pub use groebner::{groebner_basis, is_groebner_basis, GroebnerError};
+pub use grebauer_moller::filter_gm_pairs;
+pub use groebner::{
+    groebner_basis, groebner_basis_with_strategy, is_groebner_basis, GroebnerError,
+    SelectionStrategy,
+};
 pub use monomial::{Monomial, MonomialOrder};
 pub use polynomial::{Polynomial, Term};

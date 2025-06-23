@@ -19,8 +19,9 @@
     - Parallelize S-polynomial reduction and other steps for performance.
 - [ ] Sparse Polynomial Representations
     - Optimize storage and arithmetic for sparse polynomials.
-- [ ] Improved Reduction Strategies
-    - Implement strategies like sugar strategy, Gebauer–Möller criteria to minimize unnecessary S-polynomial computations.
+- [x] Improved Reduction Strategies to minimize unnecessary S-polynomial computations
+    - [x] Sugar strategy
+    - [x] Gebauer–Möller criteria
 - [ ] Incremental Groebner Basis Computation
     - Allow incremental updates to the basis when new generators are added.
 

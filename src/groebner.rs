@@ -50,6 +50,7 @@
 //! ```
 
 use crate::field::Field;
+use crate::grebauer_moller;
 use crate::monomial::Monomial;
 use crate::polynomial::Polynomial;
 use crate::sugar::{select_next_by_sugar, SugaredPolynomial};
@@ -84,12 +85,11 @@ impl fmt::Display for GroebnerError {
 
 impl std::error::Error for GroebnerError {}
 
-#[derive(Debug, Clone)]
-struct CriticalPair {
-    i: usize,
-    j: usize,
-    lcm: Monomial,
-    degree: u32,
+pub struct CriticalPair {
+    pub i: usize,
+    pub j: usize,
+    pub lcm: Monomial,
+    pub degree: u32,
 }
 
 impl CriticalPair {
@@ -130,8 +130,9 @@ impl Ord for CriticalPair {
 
 /// Enum for S-polynomial selection strategy
 pub enum SelectionStrategy {
-    Degree, // Default: by degree (current behavior)
-    Sugar,  // Use sugar strategy
+    Degree,        // Default: by degree (current behavior)
+    Sugar,         // Use sugar strategy
+    GebauerMoller, // Use Gebauer–Möller criteria
 }
 
 /// Compute Groebner basis using Buchberger's algorithm (backward-compatible signature)
@@ -186,9 +187,23 @@ pub fn groebner_basis_with_strategy<F: Field>(
             }
         }
     }
+    // Optional Gebauer–Möller criteria
+    let mut gm_pairs: Vec<CriticalPair> = Vec::new();
+    if let SelectionStrategy::GebauerMoller = strategy {
+        // Start with all pairs
+        for i in 0..basis.len() {
+            for j in i + 1..basis.len() {
+                if let Ok(pair) = CriticalPair::new(i, j, &basis[i], &basis[j]) {
+                    gm_pairs.push(pair);
+                }
+            }
+        }
+        gm_pairs = grebauer_moller::filter_gm_pairs(&basis, gm_pairs);
+    }
     while match strategy {
         SelectionStrategy::Degree => !pairs.is_empty(),
         SelectionStrategy::Sugar => !sugar_queue.is_empty(),
+        SelectionStrategy::GebauerMoller => !gm_pairs.is_empty(),
     } {
         let (_poly_i, _poly_j, s_poly) = match strategy {
             SelectionStrategy::Degree => {
@@ -247,6 +262,29 @@ pub fn groebner_basis_with_strategy<F: Field>(
                     poly_j.expect("poly_j should be found for sugar strategy"),
                     sugared.poly,
                 )
+            }
+            SelectionStrategy::GebauerMoller => {
+                let pair = match gm_pairs.pop() {
+                    Some(p) => p,
+                    None => break,
+                };
+                if pair.i >= basis.len() || pair.j >= basis.len() {
+                    continue;
+                }
+                let poly_i = &basis[pair.i];
+                let poly_j = &basis[pair.j];
+                let lm_i = poly_i
+                    .leading_monomial()
+                    .ok_or(GroebnerError::NoLeadingMonomial(pair.i))?;
+                let lm_j = poly_j
+                    .leading_monomial()
+                    .ok_or(GroebnerError::NoLeadingMonomial(pair.j))?;
+                let product = lm_i.multiply(lm_j);
+                if pair.lcm == product {
+                    continue;
+                }
+                let s_poly = poly_i.s_polynomial(poly_j).map_err(GroebnerError::from)?;
+                (poly_i.clone(), poly_j.clone(), s_poly)
             }
         };
         let reduced = s_poly.reduce(&basis).map_err(GroebnerError::from)?;
