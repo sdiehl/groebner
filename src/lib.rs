@@ -592,6 +592,7 @@ impl Ord for CriticalPair {
 pub fn groebner_basis<F: Field>(
     polynomials: Vec<Polynomial<F>>,
     _order: MonomialOrder,
+    canonicalize: bool,
 ) -> Vec<Polynomial<F>> {
     if polynomials.is_empty() {
         return Vec::new();
@@ -653,6 +654,43 @@ pub fn groebner_basis<F: Field>(
 
     // Remove redundant polynomials
     minimize_basis(&mut basis);
+
+    if canonicalize {
+        // Make all polynomials monic
+        for poly in &mut basis {
+            *poly = poly.make_monic();
+        }
+        // Sort by leading monomial (descending)
+        basis.sort_by(|a, b| {
+            let la = a.leading_monomial();
+            let lb = b.leading_monomial();
+            match (la, lb) {
+                (Some(ma), Some(mb)) => mb.compare(ma, a.order),
+                (Some(_), None) => std::cmp::Ordering::Less,
+                (None, Some(_)) => std::cmp::Ordering::Greater,
+                (None, None) => std::cmp::Ordering::Equal,
+            }
+        });
+        // Remove scalar multiples (keep only one representative for each set of scalar multiples)
+        let mut i = 0;
+        while i < basis.len() {
+            let mut j = i + 1;
+            while j < basis.len() {
+                if basis[i].terms.len() == basis[j].terms.len()
+                    && basis[i].terms.iter().zip(&basis[j].terms).all(|(t1, t2)| t1.monomial == t2.monomial)
+                {
+                    // Check if all coefficients are scalar multiples
+                    let ratio = basis[i].terms[0].coefficient.divide(&basis[j].terms[0].coefficient);
+                    if basis[i].terms.iter().zip(&basis[j].terms).all(|(t1, t2)| t1.coefficient.divide(&t2.coefficient) == ratio) {
+                        basis.remove(j);
+                        continue;
+                    }
+                }
+                j += 1;
+            }
+            i += 1;
+        }
+    }
 
     basis
 }
@@ -790,7 +828,7 @@ mod tests {
             MonomialOrder::Lex,
         );
 
-        let basis = groebner_basis(vec![f1, f2], MonomialOrder::Lex);
+        let basis = groebner_basis(vec![f1, f2], MonomialOrder::Lex, true);
         assert!(!basis.is_empty());
         assert!(is_groebner_basis(&basis));
     }
@@ -810,7 +848,7 @@ mod tests {
             MonomialOrder::Lex,
         );
 
-        let basis = groebner_basis(vec![f, g], MonomialOrder::Lex);
+        let basis = groebner_basis(vec![f, g], MonomialOrder::Lex, true);
         assert!(!basis.is_empty());
         assert!(is_groebner_basis(&basis));
 
@@ -862,7 +900,7 @@ mod tests {
             MonomialOrder::Lex,
         );
 
-        let basis = groebner_basis(vec![f1, f2, f3], MonomialOrder::Lex);
+        let basis = groebner_basis(vec![f1, f2, f3], MonomialOrder::Lex, true);
         assert!(!basis.is_empty());
         assert!(is_groebner_basis(&basis));
     }
@@ -925,12 +963,12 @@ mod tests {
 
     #[test]
     fn test_empty_and_single_polynomial() {
-        let empty_basis = groebner_basis::<Rational>(vec![], MonomialOrder::Lex);
+        let empty_basis = groebner_basis::<Rational>(vec![], MonomialOrder::Lex, true);
         assert!(empty_basis.is_empty());
 
         let single = create_polynomial(vec![(1, 1, vec![1, 0])], 2, MonomialOrder::Lex);
 
-        let single_basis = groebner_basis(vec![single.clone()], MonomialOrder::Lex);
+        let single_basis = groebner_basis(vec![single.clone()], MonomialOrder::Lex, true);
         assert_eq!(single_basis.len(), 1);
         assert!(is_groebner_basis(&single_basis));
     }
