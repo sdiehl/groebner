@@ -677,11 +677,22 @@ pub fn groebner_basis<F: Field>(
             let mut j = i + 1;
             while j < basis.len() {
                 if basis[i].terms.len() == basis[j].terms.len()
-                    && basis[i].terms.iter().zip(&basis[j].terms).all(|(t1, t2)| t1.monomial == t2.monomial)
+                    && basis[i]
+                        .terms
+                        .iter()
+                        .zip(&basis[j].terms)
+                        .all(|(t1, t2)| t1.monomial == t2.monomial)
                 {
                     // Check if all coefficients are scalar multiples
-                    let ratio = basis[i].terms[0].coefficient.divide(&basis[j].terms[0].coefficient);
-                    if basis[i].terms.iter().zip(&basis[j].terms).all(|(t1, t2)| t1.coefficient.divide(&t2.coefficient) == ratio) {
+                    let ratio = basis[i].terms[0]
+                        .coefficient
+                        .divide(&basis[j].terms[0].coefficient);
+                    if basis[i]
+                        .terms
+                        .iter()
+                        .zip(&basis[j].terms)
+                        .all(|(t1, t2)| t1.coefficient.divide(&t2.coefficient) == ratio)
+                    {
                         basis.remove(j);
                         continue;
                     }
