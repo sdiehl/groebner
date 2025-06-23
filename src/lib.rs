@@ -55,6 +55,7 @@ pub mod field;
 pub mod groebner;
 pub mod monomial;
 pub mod polynomial;
+pub mod sugar;
 
 pub use field::Field;
 pub use groebner::{groebner_basis, is_groebner_basis, GroebnerError};

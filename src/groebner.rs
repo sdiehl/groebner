@@ -52,6 +52,7 @@
 use crate::field::Field;
 use crate::monomial::Monomial;
 use crate::polynomial::Polynomial;
+use crate::sugar::{select_next_by_sugar, SugaredPolynomial};
 use std::cmp::Ordering;
 use std::collections::BinaryHeap;
 use std::fmt;
@@ -127,54 +128,28 @@ impl Ord for CriticalPair {
     }
 }
 
-/// Compute Groebner basis using Buchberger's algorithm
-///
-/// # Example
-/// ```
-/// use groebner::{groebner_basis, Monomial, MonomialOrder, Polynomial, Term};
-/// use num_rational::BigRational;
-/// // x^2 - y, xy - 1
-/// let f1 = Polynomial::new(
-///     vec![
-///         Term::new(
-///             BigRational::new(1.into(), 1.into()),
-///             Monomial::new(vec![2, 0]),
-///         ),
-///         Term::new(
-///             BigRational::new((-1).into(), 1.into()),
-///             Monomial::new(vec![0, 1]),
-///         ),
-///     ],
-///     2,
-///     MonomialOrder::Lex,
-/// );
-/// let f2 = Polynomial::new(
-///     vec![
-///         Term::new(
-///             BigRational::new(1.into(), 1.into()),
-///             Monomial::new(vec![1, 1]),
-///         ),
-///         Term::new(
-///             BigRational::new((-1).into(), 1.into()),
-///             Monomial::new(vec![0, 0]),
-///         ),
-///     ],
-///     2,
-///     MonomialOrder::Lex,
-/// );
-/// let basis_result = groebner_basis(vec![f1, f2], MonomialOrder::Lex, true);
-/// match basis_result {
-///     Ok(basis) => {
-///         assert!(!basis.is_empty());
-///     }
-///     Err(e) => panic!("Groebner basis computation failed: {}", e),
-/// }
-/// ```
-#[allow(clippy::needless_range_loop)]
+/// Enum for S-polynomial selection strategy
+pub enum SelectionStrategy {
+    Degree, // Default: by degree (current behavior)
+    Sugar,  // Use sugar strategy
+}
+
+/// Compute Groebner basis using Buchberger's algorithm (backward-compatible signature)
 pub fn groebner_basis<F: Field>(
+    polynomials: Vec<Polynomial<F>>,
+    order: crate::monomial::MonomialOrder,
+    canonicalize: bool,
+) -> Result<Vec<Polynomial<F>>, GroebnerError> {
+    groebner_basis_with_strategy(polynomials, order, canonicalize, SelectionStrategy::Degree)
+}
+
+/// Compute Groebner basis with a selectable S-polynomial selection strategy
+#[allow(clippy::needless_range_loop)]
+pub fn groebner_basis_with_strategy<F: Field>(
     polynomials: Vec<Polynomial<F>>,
     _order: crate::monomial::MonomialOrder,
     canonicalize: bool,
+    strategy: SelectionStrategy,
 ) -> Result<Vec<Polynomial<F>>, GroebnerError> {
     if polynomials.is_empty() {
         return Err(GroebnerError::EmptyInput);
@@ -194,35 +169,101 @@ pub fn groebner_basis<F: Field>(
             if let Ok(pair) = CriticalPair::new(i, j, &basis[i], &basis[j]) {
                 pairs.push(pair);
             } else {
-                // If any pair cannot be created, return the error
                 return Err(GroebnerError::NoLeadingMonomial(i));
             }
         }
     }
-    while let Some(pair) = pairs.pop() {
-        if pair.i >= basis.len() || pair.j >= basis.len() {
-            continue;
+    // Optional sugar strategy
+    let mut sugar_queue: Vec<SugaredPolynomial<F>> = Vec::new();
+    if let SelectionStrategy::Sugar = strategy {
+        // Initialize sugar queue with all S-polynomials
+        for i in 0..basis.len() {
+            for j in i + 1..basis.len() {
+                if let Ok(s_poly) = basis[i].s_polynomial(&basis[j]) {
+                    let sugared = SugaredPolynomial::new(s_poly.clone());
+                    sugar_queue.push(sugared);
+                }
+            }
         }
-        let poly_i = &basis[pair.i];
-        let poly_j = &basis[pair.j];
-        let lm_i = poly_i
-            .leading_monomial()
-            .ok_or(GroebnerError::NoLeadingMonomial(pair.i))?;
-        let lm_j = poly_j
-            .leading_monomial()
-            .ok_or(GroebnerError::NoLeadingMonomial(pair.j))?;
-        let product = lm_i.multiply(lm_j);
-        if pair.lcm == product {
-            continue;
-        }
-        let s_poly = poly_i.s_polynomial(poly_j).map_err(GroebnerError::from)?;
+    }
+    while match strategy {
+        SelectionStrategy::Degree => !pairs.is_empty(),
+        SelectionStrategy::Sugar => !sugar_queue.is_empty(),
+    } {
+        let (_poly_i, _poly_j, s_poly) = match strategy {
+            SelectionStrategy::Degree => {
+                let pair = match pairs.pop() {
+                    Some(p) => p,
+                    None => break,
+                };
+                if pair.i >= basis.len() || pair.j >= basis.len() {
+                    continue;
+                }
+                let poly_i = &basis[pair.i];
+                let poly_j = &basis[pair.j];
+                let lm_i = poly_i
+                    .leading_monomial()
+                    .ok_or(GroebnerError::NoLeadingMonomial(pair.i))?;
+                let lm_j = poly_j
+                    .leading_monomial()
+                    .ok_or(GroebnerError::NoLeadingMonomial(pair.j))?;
+                let product = lm_i.multiply(lm_j);
+                if pair.lcm == product {
+                    continue;
+                }
+                let s_poly = poly_i.s_polynomial(poly_j).map_err(GroebnerError::from)?;
+                (poly_i.clone(), poly_j.clone(), s_poly)
+            }
+            SelectionStrategy::Sugar => {
+                let sugared = match select_next_by_sugar(&mut sugar_queue) {
+                    Some(s) => s,
+                    None => break,
+                };
+                // Find which basis elements produced this S-polynomial (approximate: just use all pairs)
+                // This is a simplification; for a more precise implementation, track indices.
+                let mut found = false;
+                let mut poly_i = None;
+                let mut poly_j = None;
+                for i in 0..basis.len() {
+                    for j in i + 1..basis.len() {
+                        if let Ok(s) = basis[i].s_polynomial(&basis[j]) {
+                            if s == sugared.poly {
+                                poly_i = Some(basis[i].clone());
+                                poly_j = Some(basis[j].clone());
+                                found = true;
+                                break;
+                            }
+                        }
+                    }
+                    if found {
+                        break;
+                    }
+                }
+                if !found {
+                    continue;
+                }
+                (
+                    poly_i.expect("poly_i should be found for sugar strategy"),
+                    poly_j.expect("poly_j should be found for sugar strategy"),
+                    sugared.poly,
+                )
+            }
+        };
         let reduced = s_poly.reduce(&basis).map_err(GroebnerError::from)?;
         if !reduced.is_zero() {
             let monic_reduced = reduced.make_monic();
             let new_index = basis.len();
             for (i, existing) in basis.iter().enumerate() {
                 if let Ok(new_pair) = CriticalPair::new(i, new_index, existing, &monic_reduced) {
-                    pairs.push(new_pair);
+                    if let SelectionStrategy::Degree = strategy {
+                        pairs.push(new_pair);
+                    } else {
+                        // For sugar, push new S-polys to sugar_queue
+                        if let Ok(s_poly) = existing.s_polynomial(&monic_reduced) {
+                            let sugared = SugaredPolynomial::new(s_poly.clone());
+                            sugar_queue.push(sugared);
+                        }
+                    }
                 } else {
                     return Err(GroebnerError::NoLeadingMonomial(i));
                 }

@@ -6,17 +6,19 @@ See [examples/basic.rs](examples/basic.rs) for a usage example.
 
 ## Usage
 
-```bash
-cargo run --release
-```
+To use in your project:
 
-To run the example, use:
-§
 ```bash
-cargo run --example basic
+cargo add groebner
 ```
 
 ## Test Suite
+
+To run the example, use:
+
+```bash
+cargo run --example basic
+```
 
 ```bash
 cargo test

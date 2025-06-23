@@ -26,9 +26,7 @@
 
 ## 3. Usability & API Improvements
 - [x] Replace panics with Result-based error handling.
-- [ ] Custom Monomial Orders
-    - Allow users to define custom monomial orders.
+- [ ] Allow users to define custom monomial orders.
 - [ ] Pretty Printing and LaTeX Output
-    - Add pretty-printing for polynomials and LaTeX export.
 - [ ] Variable Naming and Symbolic Input
     - Allow users to specify variable names and parse polynomials from strings.
