@@ -12,6 +12,7 @@
     - Extend to handle submodules of free modules over polynomial rings (syzygies, free resolutions).
 
 ## 2. Algorithmic Optimizations & New Algorithms
+- [ ] Add criterion benchmarks
 - [ ] Implement F4/F5 Algorithms
     - Add faster Groebner basis algorithms (F4, F5) for large systems.
 - [ ] Parallelization
