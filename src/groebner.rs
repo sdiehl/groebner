@@ -1,12 +1,13 @@
 //! Groebner basis algorithms.
 //!
-//! This module implements Buchberger's algorithm and related utilities for computing Groebner bases
+//! An implementation of Buchberger's algorithm and related utilities for computing Groebner bases
 //! of polynomial ideals. It also provides functions for checking if a set of polynomials forms a Groebner basis.
 //!
 //! # Algorithms
 //! - Buchberger's algorithm (with monic and minimal basis options)
 //! - Basis minimization
 //! - S-polynomial computation and reduction
+//! - Canonicalization of polynomials
 //!
 //! # Example
 //! ```

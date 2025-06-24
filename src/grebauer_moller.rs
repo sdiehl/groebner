@@ -1,3 +1,5 @@
+// The selection  strategy of Gebauer and Möller from the paper "On an installation of Buchberger's algorithm."
+
 use crate::field::Field;
 use crate::groebner::CriticalPair;
 use crate::polynomial::Polynomial;

@@ -1,6 +1,6 @@
 // Sugar strategy for Groebner basis computation
 // The "sugar" of a polynomial is typically the total degree of the original input polynomial that led to the current one.
-// This module provides utilities to compute and manage sugar values for polynomials.
+// from the paper “One sugar cube, please” or selection strategies in the Buchberger algorithm"
 
 use crate::polynomial::Polynomial;
 
