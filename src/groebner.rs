@@ -131,12 +131,12 @@ impl Ord for CriticalPair {
 
 /// Enum for S-polynomial selection strategy
 pub enum SelectionStrategy {
-    Degree,        // Default: by degree (current behavior)
+    Degree,        // Default: by degree
     Sugar,         // Use sugar strategy
     GebauerMoller, // Use Gebauer–Möller criteria
 }
 
-/// Compute Groebner basis using Buchberger's algorithm (backward-compatible signature)
+/// Compute Groebner basis
 pub fn groebner_basis<F: Field>(
     polynomials: Vec<Polynomial<F>>,
     order: crate::monomial::MonomialOrder,
