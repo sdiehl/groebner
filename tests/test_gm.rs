@@ -39,7 +39,7 @@ fn test_groebner_basis_gm_strategy() {
         polynomials,
         MonomialOrder::Lex,
         true,
-        SelectionStrategy::GebauerMoller,
+        &SelectionStrategy::GebauerMoller,
     );
     assert!(
         result.is_ok(),

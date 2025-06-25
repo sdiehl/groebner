@@ -38,7 +38,7 @@ fn test_groebner_basis_sugar_strategy() {
         polynomials.clone(),
         MonomialOrder::Lex,
         true,
-        SelectionStrategy::Sugar,
+        &SelectionStrategy::Sugar,
     );
     assert!(
         result.is_ok(),
@@ -50,7 +50,7 @@ fn test_groebner_basis_sugar_strategy() {
         polynomials,
         MonomialOrder::Lex,
         true,
-        SelectionStrategy::Degree,
+        &SelectionStrategy::Degree,
     );
     assert!(
         default_result.is_ok(),

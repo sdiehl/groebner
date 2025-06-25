@@ -142,7 +142,7 @@ pub fn groebner_basis<F: Field>(
     order: crate::monomial::MonomialOrder,
     canonicalize: bool,
 ) -> Result<Vec<Polynomial<F>>, GroebnerError> {
-    groebner_basis_with_strategy(polynomials, order, canonicalize, SelectionStrategy::Degree)
+    groebner_basis_with_strategy(polynomials, order, canonicalize, &SelectionStrategy::Degree)
 }
 
 /// Compute Groebner basis with a selectable S-polynomial selection strategy
@@ -151,7 +151,7 @@ pub fn groebner_basis_with_strategy<F: Field>(
     polynomials: Vec<Polynomial<F>>,
     _order: crate::monomial::MonomialOrder,
     canonicalize: bool,
-    strategy: SelectionStrategy,
+    strategy: &SelectionStrategy,
 ) -> Result<Vec<Polynomial<F>>, GroebnerError> {
     if polynomials.is_empty() {
         return Err(GroebnerError::EmptyInput);
@@ -177,7 +177,7 @@ pub fn groebner_basis_with_strategy<F: Field>(
     }
     // Optional sugar strategy
     let mut sugar_queue: Vec<SugaredPolynomial<F>> = Vec::new();
-    if let SelectionStrategy::Sugar = strategy {
+    if let SelectionStrategy::Sugar = *strategy {
         // Initialize sugar queue with all S-polynomials
         for i in 0..basis.len() {
             for j in i + 1..basis.len() {
@@ -190,7 +190,7 @@ pub fn groebner_basis_with_strategy<F: Field>(
     }
     // Optional Gebauer–Möller criteria
     let mut gm_pairs: Vec<CriticalPair> = Vec::new();
-    if let SelectionStrategy::GebauerMoller = strategy {
+    if let SelectionStrategy::GebauerMoller = *strategy {
         // Start with all pairs
         for i in 0..basis.len() {
             for j in i + 1..basis.len() {
@@ -208,9 +208,8 @@ pub fn groebner_basis_with_strategy<F: Field>(
     } {
         let (_poly_i, _poly_j, s_poly) = match strategy {
             SelectionStrategy::Degree => {
-                let pair = match pairs.pop() {
-                    Some(p) => p,
-                    None => break,
+                let Some(pair) = pairs.pop() else {
+                    break;
                 };
                 if pair.i >= basis.len() || pair.j >= basis.len() {
                     continue;
@@ -231,9 +230,8 @@ pub fn groebner_basis_with_strategy<F: Field>(
                 (poly_i.clone(), poly_j.clone(), s_poly)
             }
             SelectionStrategy::Sugar => {
-                let sugared = match select_next_by_sugar(&mut sugar_queue) {
-                    Some(s) => s,
-                    None => break,
+                let Some(sugared) = select_next_by_sugar(&mut sugar_queue) else {
+                    break;
                 };
                 // Find which basis elements produced this S-polynomial (approximate: just use all pairs)
                 // This is a simplification; for a more precise implementation, track indices.
@@ -258,16 +256,18 @@ pub fn groebner_basis_with_strategy<F: Field>(
                 if !found {
                     continue;
                 }
-                (
-                    poly_i.expect("poly_i should be found for sugar strategy"),
-                    poly_j.expect("poly_j should be found for sugar strategy"),
-                    sugared.poly,
-                )
+                if poly_i.is_none() || poly_j.is_none() {
+                    continue;
+                } else if let (Some(poly_i), Some(poly_j)) = (poly_i, poly_j) {
+                    // Return the S-polynomial and the two polynomials that produced it
+                    (poly_i, poly_j, sugared.poly)
+                } else {
+                    continue; // Should never happen
+                }
             }
             SelectionStrategy::GebauerMoller => {
-                let pair = match gm_pairs.pop() {
-                    Some(p) => p,
-                    None => break,
+                let Some(pair) = gm_pairs.pop() else {
+                    break;
                 };
                 if pair.i >= basis.len() || pair.j >= basis.len() {
                     continue;
@@ -294,7 +294,7 @@ pub fn groebner_basis_with_strategy<F: Field>(
             let new_index = basis.len();
             for (i, existing) in basis.iter().enumerate() {
                 if let Ok(new_pair) = CriticalPair::new(i, new_index, existing, &monic_reduced) {
-                    if let SelectionStrategy::Degree = strategy {
+                    if let SelectionStrategy::Degree = *strategy {
                         pairs.push(new_pair);
                     } else {
                         // For sugar, push new S-polys to sugar_queue

@@ -31,7 +31,7 @@ impl MonomialOrder {
             MonomialOrder::Lex => {
                 for (ai, bi) in a.iter().zip(b.iter()) {
                     match ai.cmp(bi) {
-                        Ordering::Equal => continue,
+                        Ordering::Equal => {}
                         other => return other,
                     }
                 }
@@ -44,7 +44,7 @@ impl MonomialOrder {
                     Ordering::Equal => {
                         for (ai, bi) in a.iter().zip(b.iter()) {
                             match ai.cmp(bi) {
-                                Ordering::Equal => continue,
+                                Ordering::Equal => {}
                                 other => return other,
                             }
                         }
@@ -60,7 +60,7 @@ impl MonomialOrder {
                     Ordering::Equal => {
                         for (ai, bi) in a.iter().rev().zip(b.iter().rev()) {
                             match ai.cmp(bi) {
-                                Ordering::Equal => continue,
+                                Ordering::Equal => {}
                                 other => return other,
                             }
                         }

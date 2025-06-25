@@ -131,10 +131,9 @@ impl<F: Field> Polynomial<F> {
             if !lc.is_zero() {
                 if let Some(inv_lc) = lc.inverse() {
                     return self.multiply_scalar(&inv_lc);
-                } else {
-                    // Division by zero, return unchanged (should not happen for nonzero polynomials)
-                    return self.clone();
                 }
+                // Division by zero, return unchanged (should not happen for nonzero polynomials)
+                return self.clone();
             }
         }
         self.clone()

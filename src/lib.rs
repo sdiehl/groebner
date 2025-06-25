@@ -1,7 +1,7 @@
-//! Groebner Basis Library
+//! Groebner Basis
 //!
-//! This library implements algorithms for computing Groebner bases of polynomial ideals,
-//! including the Buchberger algorithm and F4 algorithm optimizations.
+//! This library computes Groebner bases of polynomial ideals, using the Buchberger and F4
+//! algorithms.
 //!
 //! # Example
 //! ```
