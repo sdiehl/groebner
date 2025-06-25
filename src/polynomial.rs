@@ -1,10 +1,50 @@
 //! Multivariate polynomial types and operations.
 //!
-//! This module defines the `Polynomial` struct and related types for representing and manipulating
-//! multivariate polynomials over arbitrary fields. It supports arithmetic, reduction, and S-polynomial
-//! computation, which are fundamental for Groebner basis algorithms.
+//! This module defines the `Polynomial` datatypes and related types for representing and manipulating
+//! multivariate polynomials over arbitrary fields.
+//!
+//! # Representation
+//!
+//! Polynomials are represented as a vector of `Term` objects, where each `Term` consists of a
+//! coefficient and a monomial. The `Polynomial` struct also includes the number of variables and
+//! the monomial order used for sorting terms. For example:
+//!
+//!```math
+//! x^5 - x + 1
+//! ```
+//!
+//! is represented as:
+//!
+//! ```
+//! use groebner::{Monomial, MonomialOrder, Polynomial, Term};
+//! use num_rational::BigRational;
+//! let p = Polynomial::new(
+//!     vec![
+//!         Term::new(BigRational::new(1.into(), 1.into()), Monomial::new(vec![5, 0])),
+//!         Term::new(BigRational::new((-1).into(), 1.into()), Monomial::new(vec![1, 0])),
+//!         Term::new(BigRational::new(1.into(), 1.into()), Monomial::one(2)),
+//!     ],
+//!     2,
+//!     MonomialOrder::Lex,
+//! );
+//! //! assert_eq!(p.terms.len(), 3);
+//! //! assert_eq!(p.nvars, 2);
+//! ```
 //!
 //! # Example
+//!
+//! For the polynomial system:
+//!
+//! ```math
+//! 2 x_1 + 3 x_2
+//! ```
+//!
+//! ```math
+//! 3 x_2
+//! ```
+//!
+//! We can create and add them as follows:
+//!
 //! ```
 //! use groebner::{Monomial, MonomialOrder, Polynomial, Term};
 //! use num_rational::BigRational;
