@@ -2,7 +2,10 @@
 
 This is an implementation of the F4 and Buchberger algorithm for computing Groebner bases in Rust.
 
-See [examples/basic.rs](examples/basic.rs) for a usage example.
+Examples:
+
+- [Buchberger example](examples/buchberger.rs)
+- [F4 example](examples/f4.rs)
 
 ## Usage
 
@@ -41,10 +44,11 @@ let basis = groebner_basis(vec![f1, f2], ring.order(), true)?;
 
 ## Test Suite
 
-To run the example, use:
+To run the examples, use:
 
 ```bash
-cargo run --example basic
+cargo run --example buchberger
+cargo run --example f4
 ```
 
 ```bash

@@ -1,9 +1,14 @@
-//! Groebner Basis
+//! Groebner basis algorithms for multivariate polynomial ideals.
 //!
-//! This library computes Groebner bases of polynomial ideals, using the Buchberger and F4
-//! algorithms.
+//! The crate provides two public computation paths:
 //!
-//! # Example
+//! - [`groebner_basis`] for the existing Buchberger implementation over any [`Field`].
+//! - [`groebner_basis_f4_mod`] for a sparse F4-style implementation over [`PrimeField`].
+//!
+//! Polynomials can be built from strings using [`PolynomialRing`], where the variable list also
+//! defines the lexicographic variable order.
+//!
+//! # Buchberger Example
 //! ```
 //! use groebner::{groebner_basis, is_groebner_basis, MonomialOrder, PolynomialRing};
 //! use num_rational::BigRational;
@@ -25,7 +30,23 @@
 //! }
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
+//!
+//! # F4 Example
+//! ```
+//! use groebner::{groebner_basis_f4_mod, MonomialOrder, PolynomialRing, PrimeField};
+//!
+//! type F32003 = PrimeField<32003>;
+//!
+//! let ring = PolynomialRing::<F32003>::new(["x", "y"], MonomialOrder::Lex)?;
+//! let f1 = ring.parse("x^2 - y")?;
+//! let f2 = ring.parse("x*y - 1")?;
+//! let basis = groebner_basis_f4_mod(vec![f1, f2], F32003::modulus(), ring.order())?;
+//!
+//! assert!(!basis.is_empty());
+//! # Ok::<(), Box<dyn std::error::Error>>(())
+//! ```
 
+pub mod f4;
 pub mod field;
 pub mod finite_field;
 pub mod grebauer_moller;
@@ -35,6 +56,7 @@ pub mod polynomial;
 pub mod ring;
 pub mod sugar;
 
+pub use f4::groebner_basis_f4_mod;
 pub use field::Field;
 pub use finite_field::{PrimeField, PrimeFieldParseError};
 pub use grebauer_moller::filter_gm_pairs;

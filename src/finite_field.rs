@@ -1,4 +1,19 @@
 //! Prime finite fields for modular Groebner basis computations.
+//!
+//! [`PrimeField<P>`] is a small const-generic field type for arithmetic modulo a machine prime.
+//! It is the coefficient type used by the sparse F4 API.
+//!
+//! # Example
+//! ```
+//! use groebner::{Field, PrimeField};
+//!
+//! type F7 = PrimeField<7>;
+//!
+//! let a = F7::from(10_u32);
+//! let b = F7::from(5_u32);
+//! assert_eq!(a.value(), 3);
+//! assert_eq!(a.multiply(&b).value(), 1);
+//! ```
 
 use crate::field::Field;
 use std::fmt;

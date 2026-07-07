@@ -1,4 +1,4 @@
-//! Groebner basis algorithms.
+//! Buchberger-style Groebner basis algorithms.
 //!
 //! An implementation of Buchberger's algorithm and related utilities for computing Groebner bases
 //! of polynomial ideals. It also provides functions for checking if a set of polynomials forms a Groebner basis.
@@ -41,6 +41,7 @@ pub enum GroebnerError {
     NoLeadingMonomial(usize),
     EmptyInput,
     Polynomial(crate::polynomial::PolynomialError),
+    InvalidPrimeField { expected: u32, actual: u32 },
 }
 
 impl From<crate::polynomial::PolynomialError> for GroebnerError {
@@ -57,6 +58,10 @@ impl fmt::Display for GroebnerError {
             }
             GroebnerError::EmptyInput => write!(f, "Input polynomial list is empty"),
             GroebnerError::Polynomial(e) => write!(f, "Polynomial error: {e}"),
+            GroebnerError::InvalidPrimeField { expected, actual } => write!(
+                f,
+                "runtime prime {actual} does not match coefficient field modulus {expected}"
+            ),
         }
     }
 }

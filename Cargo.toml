@@ -1,6 +1,6 @@
 [package]
 name = "groebner"
-version = "0.1.2"
+version = "0.2.0"
 authors = ["Stephen Diehl"]
 categories = ["science", "mathematics"]
 documentation = "https://docs.rs/groebner"
@@ -40,6 +40,14 @@ criterion = "0.5"
 [[example]]
 name = "basic"
 path = "examples/basic.rs"
+
+[[example]]
+name = "buchberger"
+path = "examples/buchberger.rs"
+
+[[example]]
+name = "f4"
+path = "examples/f4.rs"
 
 [[bench]]
 name = "groebner_bench"

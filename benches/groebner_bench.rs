@@ -1,7 +1,9 @@
 #![allow(clippy::expect_used)]
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
-use groebner::{groebner_basis, MonomialOrder, Polynomial, PolynomialRing, PrimeField};
+use groebner::{
+    groebner_basis, groebner_basis_f4_mod, MonomialOrder, Polynomial, PolynomialRing, PrimeField,
+};
 use num_rational::BigRational;
 
 type F32003 = PrimeField<32003>;
@@ -51,11 +53,11 @@ fn bench_groebner_small_axf4_families(c: &mut Criterion) {
     group.sample_size(10);
 
     for (name, input, nvars, limit) in [
-        ("cyclic7_first3", CYCLIC7, 7, 3),
+        ("cyclic7_first2", CYCLIC7, 7, 2),
         ("katsura7_first3", KATSURA7, 8, 3),
     ] {
         group.bench_with_input(
-            BenchmarkId::new("gf32003", name),
+            BenchmarkId::new("buchberger_gf32003", name),
             &(input, nvars, limit),
             |b, (input, nvars, limit)| {
                 b.iter_batched(
@@ -64,6 +66,23 @@ fn bench_groebner_small_axf4_families(c: &mut Criterion) {
                         black_box(
                             groebner_basis(polys, MonomialOrder::GrLex, true)
                                 .expect("GF(p) benchmark should compute"),
+                        );
+                    },
+                    criterion::BatchSize::SmallInput,
+                );
+            },
+        );
+
+        group.bench_with_input(
+            BenchmarkId::new("f4_gf32003", name),
+            &(input, nvars, limit),
+            |b, (input, nvars, limit)| {
+                b.iter_batched(
+                    || parse_prime_system(input, *nvars, *limit),
+                    |polys| {
+                        black_box(
+                            groebner_basis_f4_mod(polys, F32003::modulus(), MonomialOrder::GrLex)
+                                .expect("F4 GF(p) benchmark should compute"),
                         );
                     },
                     criterion::BatchSize::SmallInput,
