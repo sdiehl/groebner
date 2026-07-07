@@ -42,31 +42,18 @@ let basis = groebner_basis(vec![f1, f2], ring.order(), true)?;
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
-The default `parallel` feature enables Rayon-backed APIs such as `groebner_basis_parallel` and
-`is_groebner_basis_parallel` for independent Buchberger reductions.
-
 ## Test Suite
-
-To run the examples, use:
-
-```bash
-cargo run --example buchberger
-cargo run --example f4
-```
-
-To build the API documentation locally:
-
-```bash
-cargo doc --no-deps
-```
 
 ```bash
 cargo test
+cargo bench
 ```
 
-The [test suite](SUITE.md) is the full list of known Groebner bases for a variety of large multivariate polynomial systems.
+The [test suite](SUITE.md) is the full list of known Groebner bases for a variety of large multivariate polynomial systems from several textbooks and some trusted Mathematica generated corpus. Both the Rust algo implementations have to correctly produce the same textbook outputs and Mathematica for all inputs, up to re-ordering.
 
 ## References
+
+The classic papers on this topic:
 
 1. Cox, D., Little, J., O'Shea, D. "Ideals, Varieties, and Algorithms"
 1. Buchberger, B. "Gröbner Bases: An Algorithmic Method in Polynomial Ideal Theory"
