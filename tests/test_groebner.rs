@@ -1,23 +1,26 @@
 extern crate groebner;
-use groebner::{groebner_basis, is_groebner_basis, Monomial, MonomialOrder, Polynomial, Term};
+use groebner::{groebner_basis, is_groebner_basis, MonomialOrder, Polynomial, PolynomialRing};
 use num_rational::BigRational;
 
+const TEST_VARIABLES: [&str; 10] = ["x", "y", "z", "w", "u", "v", "a", "b", "c", "d"];
+
+#[allow(clippy::expect_used)]
+fn test_ring(nvars: usize, order: MonomialOrder) -> PolynomialRing<BigRational> {
+    PolynomialRing::new(TEST_VARIABLES[..nvars].iter().copied(), order)
+        .expect("test ring should be valid")
+}
+
 /// Helper function to create polynomials for testing
+#[allow(clippy::expect_used)]
 fn create_polynomial(
     terms: Vec<(i32, i32, Vec<u32>)>, // (numerator, denominator, exponents)
     nvars: usize,
     order: MonomialOrder,
 ) -> Polynomial<BigRational> {
-    let term_vec: Vec<Term<BigRational>> = terms
-        .into_iter()
-        .map(|(num, den, exp)| {
-            let coeff = BigRational::new(num.into(), den.into());
-            let monomial = Monomial::new(exp);
-            Term::new(coeff, monomial)
-        })
-        .collect();
-
-    Polynomial::new(term_vec, nvars, order)
+    let expression = terms_to_expression(terms, nvars);
+    test_ring(nvars, order)
+        .parse(&expression)
+        .expect("test polynomial should parse")
 }
 
 /// Helper function to create integer polynomials for testing
@@ -26,16 +29,57 @@ fn create_int_polynomial(
     nvars: usize,
     order: MonomialOrder,
 ) -> Polynomial<BigRational> {
-    let term_vec: Vec<Term<BigRational>> = terms
-        .into_iter()
-        .map(|(coeff, exp)| {
-            let rational_coeff = BigRational::new(coeff.into(), 1.into());
-            let monomial = Monomial::new(exp);
-            Term::new(rational_coeff, monomial)
-        })
-        .collect();
+    create_polynomial(
+        terms
+            .into_iter()
+            .map(|(coefficient, exponents)| (coefficient, 1, exponents))
+            .collect(),
+        nvars,
+        order,
+    )
+}
 
-    Polynomial::new(term_vec, nvars, order)
+fn terms_to_expression(terms: Vec<(i32, i32, Vec<u32>)>, nvars: usize) -> String {
+    if terms.is_empty() {
+        return "0".to_string();
+    }
+
+    let mut expression = String::new();
+    for (index, (numerator, denominator, exponents)) in terms.into_iter().enumerate() {
+        let negative = numerator < 0;
+        let abs_numerator = numerator.abs();
+        if index == 0 {
+            if negative {
+                expression.push('-');
+            }
+        } else if negative {
+            expression.push_str(" - ");
+        } else {
+            expression.push_str(" + ");
+        }
+
+        let is_constant = exponents.iter().all(|&exponent| exponent == 0);
+        let mut factors = Vec::new();
+        if abs_numerator != 1 || denominator != 1 || is_constant {
+            if denominator == 1 {
+                factors.push(abs_numerator.to_string());
+            } else {
+                factors.push(format!("{abs_numerator}/{denominator}"));
+            }
+        }
+
+        for (variable, exponent) in TEST_VARIABLES[..nvars].iter().zip(exponents) {
+            match exponent {
+                0 => {}
+                1 => factors.push((*variable).to_string()),
+                exponent => factors.push(format!("{variable}^{exponent}")),
+            }
+        }
+
+        expression.push_str(&factors.join("*"));
+    }
+
+    expression
 }
 
 #[cfg(test)]

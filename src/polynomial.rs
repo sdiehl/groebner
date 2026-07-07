@@ -5,9 +5,9 @@
 //!
 //! # Representation
 //!
-//! Polynomials are represented as a vector of `Term` objects, where each `Term` consists of a
-//! coefficient and a monomial. The `Polynomial` struct also includes the number of variables and
-//! the monomial order used for sorting terms. For example:
+//! Polynomials are internally represented as a vector of `Term` objects, where each `Term` consists
+//! of a coefficient and a monomial. For user-facing construction, prefer `PolynomialRing::parse`,
+//! which maps variable names into the internal exponent-vector representation. For example:
 //!
 //! $$
 //! x^5 - x + 1
@@ -16,25 +16,13 @@
 //! is represented as:
 //!
 //! ```
-//! use groebner::{Monomial, MonomialOrder, Polynomial, Term};
+//! use groebner::{MonomialOrder, PolynomialRing};
 //! use num_rational::BigRational;
-//! let p = Polynomial::new(
-//!     vec![
-//!         Term::new(
-//!             BigRational::new(1.into(), 1.into()),
-//!             Monomial::new(vec![5, 0]),
-//!         ),
-//!         Term::new(
-//!             BigRational::new((-1).into(), 1.into()),
-//!             Monomial::new(vec![1, 0]),
-//!         ),
-//!         Term::new(BigRational::new(1.into(), 1.into()), Monomial::one(2)),
-//!     ],
-//!     2,
-//!     MonomialOrder::Lex,
-//! );
+//! let ring = PolynomialRing::<BigRational>::new(["x", "y"], MonomialOrder::Lex)?;
+//! let p = ring.parse("x^5 - x + 1")?;
 //! assert_eq!(p.terms.len(), 3);
 //! assert_eq!(p.nvars, 2);
+//! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 //!
 //! # Example
@@ -52,26 +40,14 @@
 //! We can create and add them as follows:
 //!
 //! ```
-//! use groebner::{Monomial, MonomialOrder, Polynomial, Term};
+//! use groebner::{MonomialOrder, PolynomialRing};
 //! use num_rational::BigRational;
-//! let p1 = Polynomial::new(
-//!     vec![Term::new(
-//!         BigRational::new(2.into(), 1.into()),
-//!         Monomial::new(vec![1, 0]),
-//!     )],
-//!     2,
-//!     MonomialOrder::Lex,
-//! );
-//! let p2 = Polynomial::new(
-//!     vec![Term::new(
-//!         BigRational::new(3.into(), 1.into()),
-//!         Monomial::new(vec![0, 1]),
-//!     )],
-//!     2,
-//!     MonomialOrder::Lex,
-//! );
+//! let ring = PolynomialRing::<BigRational>::new(["x1", "x2"], MonomialOrder::Lex)?;
+//! let p1 = ring.parse("2*x1")?;
+//! let p2 = ring.parse("3*x2")?;
 //! let sum = p1.add(&p2);
 //! assert_eq!(sum.terms.len(), 2);
+//! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 
 use crate::field::Field;

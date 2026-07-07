@@ -1,55 +1,41 @@
 extern crate groebner;
-use groebner::{groebner_basis, Monomial, MonomialOrder, Polynomial, Term};
+use groebner::{groebner_basis, MonomialOrder, PolynomialRing};
 use num_rational::BigRational;
 
 fn main() {
     // Example: Compute a Groebner basis for the ideal (x^2 + y^2 - 1, x - y)
-    // Variables: x = 0, y = 1
-    let nvars = 2;
     let order = MonomialOrder::Lex;
-
-    // x^2 + y^2 - 1
-    let f = Polynomial::new(
-        vec![
-            Term::new(
-                BigRational::new(1.into(), 1.into()),
-                Monomial::new(vec![2, 0]),
-            ), // x^2
-            Term::new(
-                BigRational::new(1.into(), 1.into()),
-                Monomial::new(vec![0, 2]),
-            ), // y^2
-            Term::new(
-                BigRational::new((-1).into(), 1.into()),
-                Monomial::new(vec![0, 0]),
-            ), // -1
-        ],
-        nvars,
-        order,
-    );
-
-    // x - y
-    let g = Polynomial::new(
-        vec![
-            Term::new(
-                BigRational::new(1.into(), 1.into()),
-                Monomial::new(vec![1, 0]),
-            ), // x
-            Term::new(
-                BigRational::new((-1).into(), 1.into()),
-                Monomial::new(vec![0, 1]),
-            ), // -y
-        ],
-        nvars,
-        order,
-    );
+    let ring = match PolynomialRing::<BigRational>::new(["x", "y"], order) {
+        Ok(ring) => ring,
+        Err(e) => {
+            println!("Error creating polynomial ring: {e}");
+            return;
+        }
+    };
+    let f = match ring.parse("x^2 + y^2 - 1") {
+        Ok(polynomial) => polynomial,
+        Err(e) => {
+            println!("Error parsing first polynomial: {e}");
+            return;
+        }
+    };
+    let g = match ring.parse("x - y") {
+        Ok(polynomial) => polynomial,
+        Err(e) => {
+            println!("Error parsing second polynomial: {e}");
+            return;
+        }
+    };
 
     // Compute the Groebner basis
     match groebner_basis(vec![f, g], order, true) {
         Ok(basis) => {
             println!("Groebner basis:");
             for (i, poly) in basis.iter().enumerate() {
-                println!("g{}: {}", i + 1, poly);
+                match ring.format(poly) {
+                    Ok(formatted) => println!("g{}: {}", i + 1, formatted),
+                    Err(e) => println!("Error formatting g{}: {e}", i + 1),
+                }
             }
         }
         Err(e) => {

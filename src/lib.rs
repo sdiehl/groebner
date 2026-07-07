@@ -5,38 +5,12 @@
 //!
 //! # Example
 //! ```
-//! use groebner::is_groebner_basis;
-//! use groebner::{groebner_basis, Monomial, MonomialOrder, Polynomial, Term};
+//! use groebner::{groebner_basis, is_groebner_basis, MonomialOrder, PolynomialRing};
 //! use num_rational::BigRational;
-//! // x^2 - y, xy - 1
-//! let f1 = Polynomial::new(
-//!     vec![
-//!         Term::new(
-//!             BigRational::new(1.into(), 1.into()),
-//!             Monomial::new(vec![2, 0]),
-//!         ),
-//!         Term::new(
-//!             BigRational::new((-1).into(), 1.into()),
-//!             Monomial::new(vec![0, 1]),
-//!         ),
-//!     ],
-//!     2,
-//!     MonomialOrder::Lex,
-//! );
-//! let f2 = Polynomial::new(
-//!     vec![
-//!         Term::new(
-//!             BigRational::new(1.into(), 1.into()),
-//!             Monomial::new(vec![1, 1]),
-//!         ),
-//!         Term::new(
-//!             BigRational::new((-1).into(), 1.into()),
-//!             Monomial::new(vec![0, 0]),
-//!         ),
-//!     ],
-//!     2,
-//!     MonomialOrder::Lex,
-//! );
+//!
+//! let ring = PolynomialRing::<BigRational>::new(["x", "y"], MonomialOrder::Lex)?;
+//! let f1 = ring.parse("x^2 - y")?;
+//! let f2 = ring.parse("x*y - 1")?;
 //! let basis_result = groebner_basis(vec![f1, f2], MonomialOrder::Lex, true);
 //! match basis_result {
 //!     Ok(basis) => {
@@ -49,6 +23,7 @@
 //!     }
 //!     Err(e) => panic!("Groebner basis computation failed: {}", e),
 //! }
+//! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 
 pub mod field;
@@ -56,6 +31,7 @@ pub mod grebauer_moller;
 pub mod groebner;
 pub mod monomial;
 pub mod polynomial;
+pub mod ring;
 pub mod sugar;
 
 pub use field::Field;
@@ -66,3 +42,4 @@ pub use groebner::{
 };
 pub use monomial::{Monomial, MonomialOrder};
 pub use polynomial::{Polynomial, Term};
+pub use ring::{ParsePolynomialError, PolynomialRing};

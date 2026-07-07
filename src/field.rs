@@ -17,7 +17,6 @@
 //! assert_eq!(sum, BigRational::new(5.into(), 6.into()));
 //! ```
 
-use num_bigint::BigInt;
 use num_rational::BigRational;
 use std::fmt;
 
@@ -42,16 +41,16 @@ pub trait Field: Clone + PartialEq + fmt::Debug + fmt::Display {
 
 impl Field for BigRational {
     fn zero() -> Self {
-        BigRational::from_integer(BigInt::from(0))
+        <Self as num_traits::Zero>::zero()
     }
     fn one() -> Self {
-        BigRational::from_integer(BigInt::from(1))
+        <Self as num_traits::One>::one()
     }
     fn is_zero(&self) -> bool {
-        <num_rational::Ratio<BigInt> as num_traits::Zero>::is_zero(self)
+        <Self as num_traits::Zero>::is_zero(self)
     }
     fn is_one(&self) -> bool {
-        <num_rational::Ratio<BigInt> as num_traits::One>::is_one(self)
+        <Self as num_traits::One>::is_one(self)
     }
     fn add(&self, other: &Self) -> Self {
         self + other

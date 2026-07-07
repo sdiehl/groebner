@@ -12,6 +12,19 @@ To use in your project:
 cargo add groebner
 ```
 
+Create polynomials from strings with an explicit variable order:
+
+```rust
+use groebner::{groebner_basis, MonomialOrder, PolynomialRing};
+use num_rational::BigRational;
+
+let ring = PolynomialRing::<BigRational>::new(["z3", "z1", "z2"], MonomialOrder::Lex)?;
+let f1 = ring.parse("z1^2 - z2")?;
+let f2 = ring.parse("z1*z2 - 1")?;
+let basis = groebner_basis(vec![f1, f2], ring.order(), true)?;
+# Ok::<(), Box<dyn std::error::Error>>(())
+```
+
 ## Test Suite
 
 To run the example, use:

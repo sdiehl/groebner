@@ -1,39 +1,13 @@
-use groebner::{
-    groebner_basis_with_strategy, Monomial, MonomialOrder, Polynomial, SelectionStrategy, Term,
-};
+use groebner::{groebner_basis_with_strategy, MonomialOrder, PolynomialRing, SelectionStrategy};
 use num_rational::BigRational;
 
 #[test]
 fn test_groebner_basis_gm_strategy() {
     // Example: x^2 - y, xy - 1
-    let f1 = Polynomial::new(
-        vec![
-            Term::new(
-                BigRational::new(1.into(), 1.into()),
-                Monomial::new(vec![2, 0]),
-            ),
-            Term::new(
-                BigRational::new((-1).into(), 1.into()),
-                Monomial::new(vec![0, 1]),
-            ),
-        ],
-        2,
-        MonomialOrder::Lex,
-    );
-    let f2 = Polynomial::new(
-        vec![
-            Term::new(
-                BigRational::new(1.into(), 1.into()),
-                Monomial::new(vec![1, 1]),
-            ),
-            Term::new(
-                BigRational::new((-1).into(), 1.into()),
-                Monomial::new(vec![0, 0]),
-            ),
-        ],
-        2,
-        MonomialOrder::Lex,
-    );
+    let ring = PolynomialRing::<BigRational>::new(["x", "y"], MonomialOrder::Lex)
+        .expect("test ring should be valid");
+    let f1 = ring.parse("x^2 - y").expect("f1 should parse");
+    let f2 = ring.parse("x*y - 1").expect("f2 should parse");
     let polynomials = vec![f1, f2];
     let result = groebner_basis_with_strategy(
         polynomials,

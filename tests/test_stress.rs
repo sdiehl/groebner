@@ -1,11 +1,13 @@
 extern crate groebner;
-use groebner::{groebner_basis, Monomial, MonomialOrder, Polynomial, Term};
+use groebner::{groebner_basis, MonomialOrder, Polynomial, PolynomialRing};
 use num_rational::BigRational;
 use std::time::Instant;
 
 const SEED: usize = 7919;
+const TEST_VARIABLES: [&str; 5] = ["x", "y", "z", "w", "u"];
 
 /// Helper to create a more varied polynomial with nvars variables, degree up to max_deg, and nterms terms
+#[allow(clippy::expect_used)]
 fn make_poly(
     nvars: usize,
     max_deg: u32,
@@ -13,7 +15,9 @@ fn make_poly(
     order: MonomialOrder,
     offset: usize,
 ) -> Polynomial<BigRational> {
-    let mut terms = Vec::new();
+    let ring = PolynomialRing::<BigRational>::new(TEST_VARIABLES[..nvars].iter().copied(), order)
+        .expect("test ring should be valid");
+    let mut expression = String::new();
     for i in 0..nterms {
         let mut exps = vec![0u32; nvars];
         // Vary exponents: each term has a different pattern
@@ -22,13 +26,54 @@ fn make_poly(
         }
         // Vary coefficients: alternate sign, use offset
         let sign = if (i + offset) % 2 == 0 { 1 } else { -1 };
-        let coeff = BigRational::new(
-            (sign * ((i + 1 + offset) as i32)).into(),
-            (1 + (i % 3) as i32).into(),
+        push_term(
+            &mut expression,
+            i,
+            sign * ((i + 1 + offset) as i32),
+            1 + (i % 3) as i32,
+            &exps,
         );
-        terms.push(Term::new(coeff, Monomial::new(exps)));
     }
-    Polynomial::new(terms, nvars, order)
+    ring.parse(&expression)
+        .expect("generated stress polynomial should parse")
+}
+
+fn push_term(
+    expression: &mut String,
+    index: usize,
+    numerator: i32,
+    denominator: i32,
+    exponents: &[u32],
+) {
+    let negative = numerator < 0;
+    let abs_numerator = numerator.abs();
+    if index == 0 {
+        if negative {
+            expression.push('-');
+        }
+    } else if negative {
+        expression.push_str(" - ");
+    } else {
+        expression.push_str(" + ");
+    }
+
+    let is_constant = exponents.iter().all(|&exponent| exponent == 0);
+    let mut factors = Vec::new();
+    if abs_numerator != 1 || denominator != 1 || is_constant {
+        if denominator == 1 {
+            factors.push(abs_numerator.to_string());
+        } else {
+            factors.push(format!("{abs_numerator}/{denominator}"));
+        }
+    }
+    for (variable, exponent) in TEST_VARIABLES.iter().zip(exponents) {
+        match exponent {
+            0 => {}
+            1 => factors.push((*variable).to_string()),
+            exponent => factors.push(format!("{variable}^{exponent}")),
+        }
+    }
+    expression.push_str(&factors.join("*"));
 }
 
 #[test]
