@@ -428,17 +428,17 @@ mod tests {
         let has_x2_term = basis.iter().any(|p| {
             p.terms
                 .iter()
-                .any(|t| t.monomial.exponents == vec![2, 0, 0])
+                .any(|t| t.monomial.exponents.as_ref() == [2, 0, 0])
         });
         let has_xz_term = basis.iter().any(|p| {
             p.terms
                 .iter()
-                .any(|t| t.monomial.exponents == vec![1, 0, 1])
+                .any(|t| t.monomial.exponents.as_ref() == [1, 0, 1])
         });
         let has_z2_term = basis.iter().any(|p| {
             p.terms
                 .iter()
-                .any(|t| t.monomial.exponents == vec![0, 0, 2])
+                .any(|t| t.monomial.exponents.as_ref() == [0, 0, 2])
         });
 
         assert!(has_x2_term);
@@ -672,22 +672,25 @@ mod tests {
             basis[0]
                 .leading_monomial()
                 .expect("Leading monomial computation failed")
-                .exponents,
-            vec![1, 0, 0]
+                .exponents
+                .as_ref(),
+            [1, 0, 0]
         ); // Leading term should be x0
         assert_eq!(
             basis[1]
                 .leading_monomial()
                 .expect("Leading monomial computation failed")
-                .exponents,
-            vec![0, 1, 0]
+                .exponents
+                .as_ref(),
+            [0, 1, 0]
         ); // Leading term should be x1
         assert_eq!(
             basis[2]
                 .leading_monomial()
                 .expect("Leading monomial computation failed")
-                .exponents,
-            vec![0, 0, 4]
+                .exponents
+                .as_ref(),
+            [0, 0, 4]
         ); // Leading term should be x2^4
     }
 

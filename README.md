@@ -25,6 +25,20 @@ let basis = groebner_basis(vec![f1, f2], ring.order(), true)?;
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
+For modular computations over a machine prime:
+
+```rust
+use groebner::{groebner_basis, MonomialOrder, PolynomialRing, PrimeField};
+
+type F32003 = PrimeField<32003>;
+
+let ring = PolynomialRing::<F32003>::new(["x", "y"], MonomialOrder::GrLex)?;
+let f1 = ring.parse("x^2 - y")?;
+let f2 = ring.parse("x*y - 1")?;
+let basis = groebner_basis(vec![f1, f2], ring.order(), true)?;
+# Ok::<(), Box<dyn std::error::Error>>(())
+```
+
 ## Test Suite
 
 To run the example, use:

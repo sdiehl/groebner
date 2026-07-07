@@ -16,7 +16,9 @@
 //! ```
 
 use std::cmp::Ordering;
+use std::collections::HashMap;
 use std::fmt;
+use std::sync::{Arc, Mutex, OnceLock, Weak};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum MonomialOrder {
@@ -75,17 +77,17 @@ impl MonomialOrder {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Monomial {
-    pub exponents: Vec<u32>,
+    pub exponents: Arc<[u32]>,
 }
 
 impl Monomial {
     pub fn new(exponents: Vec<u32>) -> Self {
-        Self { exponents }
+        Self {
+            exponents: intern_exponents(exponents),
+        }
     }
     pub fn one(nvars: usize) -> Self {
-        Self {
-            exponents: vec![0; nvars],
-        }
+        Self::new(vec![0; nvars])
     }
     pub fn nvars(&self) -> usize {
         self.exponents.len()
@@ -98,16 +100,16 @@ impl Monomial {
         let exponents = self
             .exponents
             .iter()
-            .zip(&other.exponents)
+            .zip(other.exponents.iter())
             .map(|(a, b)| a + b)
             .collect();
-        Self { exponents }
+        Self::new(exponents)
     }
     pub fn divides(&self, other: &Self) -> bool {
         assert_eq!(self.nvars(), other.nvars());
         self.exponents
             .iter()
-            .zip(&other.exponents)
+            .zip(other.exponents.iter())
             .all(|(a, b)| a <= b)
     }
     pub fn divide(&self, other: &Self) -> Option<Self> {
@@ -118,24 +120,45 @@ impl Monomial {
         let exponents = self
             .exponents
             .iter()
-            .zip(&other.exponents)
+            .zip(other.exponents.iter())
             .map(|(a, b)| a - b)
             .collect();
-        Some(Self { exponents })
+        Some(Self::new(exponents))
     }
     pub fn lcm(&self, other: &Self) -> Self {
         assert_eq!(self.nvars(), other.nvars());
         let exponents = self
             .exponents
             .iter()
-            .zip(&other.exponents)
+            .zip(other.exponents.iter())
             .map(|(a, b)| (*a).max(*b))
             .collect();
-        Self { exponents }
+        Self::new(exponents)
     }
     pub fn compare(&self, other: &Self, order: MonomialOrder) -> Ordering {
         order.compare(&self.exponents, &other.exponents)
     }
+}
+
+fn intern_exponents(exponents: Vec<u32>) -> Arc<[u32]> {
+    type ExponentInterner = Mutex<HashMap<Vec<u32>, Weak<[u32]>>>;
+
+    static INTERNER: OnceLock<ExponentInterner> = OnceLock::new();
+
+    let interner = INTERNER.get_or_init(|| Mutex::new(HashMap::new()));
+    let Ok(mut interner) = interner.lock() else {
+        return Arc::from(exponents);
+    };
+
+    if let Some(existing) = interner.get(&exponents) {
+        if let Some(existing) = existing.upgrade() {
+            return existing;
+        }
+    }
+
+    let interned: Arc<[u32]> = Arc::from(exponents.clone());
+    interner.insert(exponents, Arc::downgrade(&interned));
+    interned
 }
 
 impl fmt::Display for Monomial {

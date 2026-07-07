@@ -1,6 +1,7 @@
 //! Polynomial ring helpers for parsing and formatting user-facing polynomials.
 
 use crate::field::Field;
+use crate::finite_field::PrimeField;
 use crate::monomial::{Monomial, MonomialOrder};
 use crate::polynomial::{Polynomial, Term};
 use num_rational::BigRational;
@@ -102,10 +103,10 @@ impl<F> PolynomialRing<F> {
     }
 }
 
-impl PolynomialRing<BigRational> {
-    pub fn parse(&self, input: &str) -> Result<Polynomial<BigRational>, ParsePolynomialError> {
+impl<F: ParseCoefficient> PolynomialRing<F> {
+    pub fn parse(&self, input: &str) -> Result<Polynomial<F>, ParsePolynomialError> {
         let tokens = Lexer::new(input).tokenize()?;
-        let mut parser = Parser::new(tokens, self);
+        let mut parser = ParserFor::new(tokens, self);
         let polynomial = parser.parse_polynomial()?;
         if let Some(token) = parser.peek() {
             return Err(ParsePolynomialError::TrailingInput(token.to_string()));
@@ -113,10 +114,7 @@ impl PolynomialRing<BigRational> {
         Ok(polynomial)
     }
 
-    pub fn parse_many(
-        &self,
-        input: &str,
-    ) -> Result<Vec<Polynomial<BigRational>>, ParsePolynomialError> {
+    pub fn parse_many(&self, input: &str) -> Result<Vec<Polynomial<F>>, ParsePolynomialError> {
         input
             .split([';', ','])
             .map(str::trim)
@@ -125,10 +123,7 @@ impl PolynomialRing<BigRational> {
             .collect()
     }
 
-    pub fn format(
-        &self,
-        polynomial: &Polynomial<BigRational>,
-    ) -> Result<String, ParsePolynomialError> {
+    pub fn format(&self, polynomial: &Polynomial<F>) -> Result<String, ParsePolynomialError> {
         if polynomial.nvars != self.variables.len() {
             return Err(ParsePolynomialError::WrongVariableCount {
                 expected: self.variables.len(),
@@ -179,7 +174,7 @@ impl PolynomialRing<BigRational> {
         }
 
         let mut factors = Vec::new();
-        for (variable, exponent) in self.variables.iter().zip(&monomial.exponents) {
+        for (variable, exponent) in self.variables.iter().zip(monomial.exponents.iter()) {
             match exponent {
                 0 => {}
                 1 => factors.push(variable.clone()),
@@ -324,14 +319,14 @@ impl<'a> Lexer<'a> {
     }
 }
 
-struct Parser<'a> {
+struct ParserFor<'a, F> {
     tokens: Vec<Token>,
     index: usize,
-    ring: &'a PolynomialRing<BigRational>,
+    ring: &'a PolynomialRing<F>,
 }
 
-impl<'a> Parser<'a> {
-    fn new(tokens: Vec<Token>, ring: &'a PolynomialRing<BigRational>) -> Self {
+impl<'a, F: ParseCoefficient> ParserFor<'a, F> {
+    fn new(tokens: Vec<Token>, ring: &'a PolynomialRing<F>) -> Self {
         Self {
             tokens,
             index: 0,
@@ -339,7 +334,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_polynomial(&mut self) -> Result<Polynomial<BigRational>, ParsePolynomialError> {
+    fn parse_polynomial(&mut self) -> Result<Polynomial<F>, ParsePolynomialError> {
         let mut terms = Vec::new();
         let mut saw_term = false;
 
@@ -385,13 +380,8 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_term(&mut self, sign: i32) -> Result<Term<BigRational>, ParsePolynomialError> {
-        let mut coefficient = if sign < 0 {
-            BigRational::from_str("-1")
-        } else {
-            BigRational::from_str("1")
-        }
-        .map_err(|_| ParsePolynomialError::InvalidNumber(sign.to_string()))?;
+    fn parse_term(&mut self, sign: i32) -> Result<Term<F>, ParsePolynomialError> {
+        let mut coefficient = if sign < 0 { F::minus_one() } else { F::one() };
         let mut exponents = vec![0u32; self.ring.variables.len()];
         let mut saw_factor = false;
         let mut require_factor = false;
@@ -407,7 +397,7 @@ impl<'a> Parser<'a> {
                 }
                 Token::Number(number) => {
                     self.index += 1;
-                    let factor = self.parse_rational(number)?;
+                    let factor = self.parse_coefficient(&number)?;
                     coefficient = coefficient.multiply(&factor);
                     saw_factor = true;
                     require_factor = false;
@@ -441,8 +431,8 @@ impl<'a> Parser<'a> {
         Ok(Term::new(coefficient, Monomial::new(exponents)))
     }
 
-    fn parse_rational(&mut self, numerator: String) -> Result<BigRational, ParsePolynomialError> {
-        let text = if matches!(self.peek(), Some(Token::Slash)) {
+    fn parse_coefficient(&mut self, numerator: &str) -> Result<F, ParsePolynomialError> {
+        let denominator = if matches!(self.peek(), Some(Token::Slash)) {
             self.index += 1;
             let denominator = match self.peek().cloned() {
                 Some(Token::Number(number)) => {
@@ -454,12 +444,12 @@ impl<'a> Parser<'a> {
             if denominator == "0" {
                 return Err(ParsePolynomialError::DivisionByZero);
             }
-            format!("{numerator}/{denominator}")
+            Some(denominator)
         } else {
-            numerator
+            None
         };
 
-        BigRational::from_str(&text).map_err(|_| ParsePolynomialError::InvalidNumber(text))
+        F::parse_coefficient(numerator, denominator.as_deref())
     }
 
     fn parse_optional_exponent(&mut self) -> Result<u32, ParsePolynomialError> {
@@ -483,6 +473,51 @@ impl<'a> Parser<'a> {
 
     fn peek(&self) -> Option<&Token> {
         self.tokens.get(self.index)
+    }
+}
+
+pub trait ParseCoefficient: Field {
+    fn minus_one() -> Self {
+        Self::one().negate()
+    }
+
+    fn parse_coefficient(
+        numerator: &str,
+        denominator: Option<&str>,
+    ) -> Result<Self, ParsePolynomialError>;
+}
+
+impl ParseCoefficient for BigRational {
+    fn parse_coefficient(
+        numerator: &str,
+        denominator: Option<&str>,
+    ) -> Result<Self, ParsePolynomialError> {
+        let text = if let Some(denominator) = denominator {
+            format!("{numerator}/{denominator}")
+        } else {
+            numerator.to_string()
+        };
+
+        BigRational::from_str(&text).map_err(|_| ParsePolynomialError::InvalidNumber(text))
+    }
+}
+
+impl<const P: u32> ParseCoefficient for PrimeField<P> {
+    fn parse_coefficient(
+        numerator: &str,
+        denominator: Option<&str>,
+    ) -> Result<Self, ParsePolynomialError> {
+        let numerator = PrimeField::<P>::parse_digits_mod(numerator)
+            .map_err(|_| ParsePolynomialError::InvalidNumber(numerator.to_string()))?;
+        let Some(denominator) = denominator else {
+            return Ok(numerator);
+        };
+        let denominator = PrimeField::<P>::parse_digits_mod(denominator)
+            .map_err(|_| ParsePolynomialError::InvalidNumber(denominator.to_string()))?;
+        let inverse = denominator
+            .inverse()
+            .ok_or(ParsePolynomialError::DivisionByZero)?;
+        Ok(numerator.multiply(&inverse))
     }
 }
 

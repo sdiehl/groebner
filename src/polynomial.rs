@@ -103,24 +103,102 @@ impl<F: Field> Polynomial<F> {
     pub fn new(mut terms: Vec<Term<F>>, nvars: usize, order: MonomialOrder) -> Self {
         terms.retain(|t| !t.coefficient.is_zero());
         terms.sort_by(|a, b| b.monomial.compare(&a.monomial, order));
+        Self::from_sorted_terms(terms, nvars, order)
+    }
+
+    fn from_sorted_terms(terms: Vec<Term<F>>, nvars: usize, order: MonomialOrder) -> Self {
         let mut combined: Vec<Term<F>> = Vec::new();
         for term in terms {
-            if let Some(last) = combined.last_mut() {
-                if last.monomial == term.monomial {
-                    last.coefficient = last.coefficient.add(&term.coefficient);
-                    if last.coefficient.is_zero() {
-                        combined.pop();
-                    }
-                    continue;
-                }
-            }
-            combined.push(term);
+            Self::push_combined(&mut combined, term);
         }
         Self {
             terms: combined,
             nvars,
             order,
         }
+    }
+
+    fn push_combined(terms: &mut Vec<Term<F>>, term: Term<F>) {
+        if term.coefficient.is_zero() {
+            return;
+        }
+        if let Some(last) = terms.last_mut() {
+            if last.monomial == term.monomial {
+                last.coefficient = last.coefficient.add(&term.coefficient);
+                if last.coefficient.is_zero() {
+                    terms.pop();
+                }
+                return;
+            }
+        }
+        terms.push(term);
+    }
+
+    fn merge_sorted_terms(
+        left: &[Term<F>],
+        right: &[Term<F>],
+        nvars: usize,
+        order: MonomialOrder,
+        negate_right: bool,
+    ) -> Self {
+        let mut merged = Vec::with_capacity(left.len() + right.len());
+        let mut i = 0;
+        let mut j = 0;
+
+        while i < left.len() && j < right.len() {
+            match left[i].monomial.compare(&right[j].monomial, order) {
+                std::cmp::Ordering::Greater => {
+                    Self::push_combined(&mut merged, left[i].clone());
+                    i += 1;
+                }
+                std::cmp::Ordering::Less => {
+                    let coefficient = if negate_right {
+                        right[j].coefficient.negate()
+                    } else {
+                        right[j].coefficient.clone()
+                    };
+                    Self::push_combined(
+                        &mut merged,
+                        Term::new(coefficient, right[j].monomial.clone()),
+                    );
+                    j += 1;
+                }
+                std::cmp::Ordering::Equal => {
+                    let right_coefficient = if negate_right {
+                        right[j].coefficient.negate()
+                    } else {
+                        right[j].coefficient.clone()
+                    };
+                    let coefficient = left[i].coefficient.add(&right_coefficient);
+                    Self::push_combined(
+                        &mut merged,
+                        Term::new(coefficient, left[i].monomial.clone()),
+                    );
+                    i += 1;
+                    j += 1;
+                }
+            }
+        }
+
+        while i < left.len() {
+            Self::push_combined(&mut merged, left[i].clone());
+            i += 1;
+        }
+
+        while j < right.len() {
+            let coefficient = if negate_right {
+                right[j].coefficient.negate()
+            } else {
+                right[j].coefficient.clone()
+            };
+            Self::push_combined(
+                &mut merged,
+                Term::new(coefficient, right[j].monomial.clone()),
+            );
+            j += 1;
+        }
+
+        Self::from_sorted_terms(merged, nvars, order)
     }
     pub fn zero(nvars: usize, order: MonomialOrder) -> Self {
         Self {
@@ -163,18 +241,12 @@ impl<F: Field> Polynomial<F> {
     pub fn add(&self, other: &Self) -> Self {
         assert_eq!(self.nvars, other.nvars);
         assert_eq!(self.order, other.order);
-        let mut terms = self.terms.clone();
-        terms.extend(other.terms.clone());
-        Self::new(terms, self.nvars, self.order)
+        Self::merge_sorted_terms(&self.terms, &other.terms, self.nvars, self.order, false)
     }
     pub fn subtract(&self, other: &Self) -> Self {
         assert_eq!(self.nvars, other.nvars);
         assert_eq!(self.order, other.order);
-        let mut terms = self.terms.clone();
-        for term in &other.terms {
-            terms.push(Term::new(term.coefficient.negate(), term.monomial.clone()));
-        }
-        Self::new(terms, self.nvars, self.order)
+        Self::merge_sorted_terms(&self.terms, &other.terms, self.nvars, self.order, true)
     }
     pub fn multiply_scalar(&self, scalar: &F) -> Self {
         if scalar.is_zero() {
@@ -185,7 +257,7 @@ impl<F: Field> Polynomial<F> {
             .iter()
             .map(|t| Term::new(t.coefficient.multiply(scalar), t.monomial.clone()))
             .collect();
-        Self::new(terms, self.nvars, self.order)
+        Self::from_sorted_terms(terms, self.nvars, self.order)
     }
     pub fn multiply_monomial(&self, monomial: &Monomial) -> Self {
         let terms = self
@@ -193,7 +265,7 @@ impl<F: Field> Polynomial<F> {
             .iter()
             .map(|t| Term::new(t.coefficient.clone(), t.monomial.multiply(monomial)))
             .collect();
-        Self::new(terms, self.nvars, self.order)
+        Self::from_sorted_terms(terms, self.nvars, self.order)
     }
     pub fn multiply(&self, other: &Self) -> Self {
         assert_eq!(self.nvars, other.nvars);
@@ -240,33 +312,43 @@ impl<F: Field> Polynomial<F> {
         Ok(term1.subtract(&term2))
     }
     pub fn reduce(&self, basis: &[Self]) -> Result<Self, PolynomialError> {
+        let leading_index: Vec<_> = basis
+            .iter()
+            .filter_map(|divisor| {
+                divisor
+                    .leading_monomial()
+                    .map(|leading| (leading.degree(), leading, divisor))
+            })
+            .collect();
         let mut remainder = self.clone();
         while !remainder.is_zero() {
             let mut reduced = false;
             if let Some(leading_mono) = remainder.leading_monomial() {
-                for divisor in basis {
-                    if let Some(div_leading) = divisor.leading_monomial() {
-                        if div_leading.divides(leading_mono) {
-                            let quotient_mono = leading_mono
-                                .divide(div_leading)
-                                .ok_or(PolynomialError::DivisionFailed)?;
-                            let lc_remainder = remainder
-                                .leading_coefficient()
-                                .ok_or(PolynomialError::NoLeadingCoefficient)?;
-                            let lc_divisor = divisor
-                                .leading_coefficient()
-                                .ok_or(PolynomialError::NoLeadingCoefficient)?;
-                            let inv_lc_divisor = lc_divisor
-                                .inverse()
-                                .ok_or(PolynomialError::DivisionByZero)?;
-                            let quotient_coeff = lc_remainder.multiply(&inv_lc_divisor);
-                            let subtrahend = divisor
-                                .multiply_monomial(&quotient_mono)
-                                .multiply_scalar(&quotient_coeff);
-                            remainder = remainder.subtract(&subtrahend);
-                            reduced = true;
-                            break;
-                        }
+                let leading_degree = leading_mono.degree();
+                for (_, div_leading, divisor) in leading_index
+                    .iter()
+                    .filter(|(degree, _, _)| *degree <= leading_degree)
+                {
+                    if div_leading.divides(leading_mono) {
+                        let quotient_mono = leading_mono
+                            .divide(div_leading)
+                            .ok_or(PolynomialError::DivisionFailed)?;
+                        let lc_remainder = remainder
+                            .leading_coefficient()
+                            .ok_or(PolynomialError::NoLeadingCoefficient)?;
+                        let lc_divisor = divisor
+                            .leading_coefficient()
+                            .ok_or(PolynomialError::NoLeadingCoefficient)?;
+                        let inv_lc_divisor = lc_divisor
+                            .inverse()
+                            .ok_or(PolynomialError::DivisionByZero)?;
+                        let quotient_coeff = lc_remainder.multiply(&inv_lc_divisor);
+                        let subtrahend = divisor
+                            .multiply_monomial(&quotient_mono)
+                            .multiply_scalar(&quotient_coeff);
+                        remainder = remainder.subtract(&subtrahend);
+                        reduced = true;
+                        break;
                     }
                 }
             }
