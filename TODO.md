@@ -1,4 +1,4 @@
-# TODO for v0.2.0
+# TODO for v0.2.1
 
 ## 1. Mathematical Structures & Generalizations
 
@@ -25,13 +25,13 @@
 - [x] Improved Reduction Strategies to minimize unnecessary S-polynomial computations
   - [x] Sugar strategy
   - [x] Gebauer–Möller criteria
-- [ ] Incremental Groebner Basis Computation
-  - Allow incremental updates to the basis when new generators are added.
+- [x] Incremental Groebner Basis Computation
+  - [x] Allow incremental updates to the basis when new generators are added.
 
 ## 3. Usability & API Improvements
 
 - [x] Replace panics with Result-based error handling.
 - [x] Allow users to define custom variable order for monomial orders.
-- [ ] Pretty Printing and LaTeX Output
+- [x] Pretty Printing and LaTeX Output
 - [x] Variable Naming and Symbolic Input
   - [x] Allow users to specify variable names and parse polynomials from strings.

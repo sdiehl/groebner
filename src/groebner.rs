@@ -11,19 +11,18 @@
 //!
 //! # Example
 //! ```
-//! use groebner::{groebner_basis, MonomialOrder, PolynomialRing};
+//! use groebner::{groebner_basis, groebner_basis_incremental, MonomialOrder, PolynomialRing};
 //! use num_rational::BigRational;
 //!
 //! let ring = PolynomialRing::<BigRational>::new(["x", "y"], MonomialOrder::Lex)?;
 //! let f1 = ring.parse("x^2 - y")?;
 //! let f2 = ring.parse("x*y - 1")?;
-//! let basis_result = groebner_basis(vec![f1, f2], MonomialOrder::Lex, true);
-//! match basis_result {
-//!     Ok(basis) => {
-//!         assert!(!basis.is_empty());
-//!     }
-//!     Err(e) => panic!("Groebner basis computation failed: {}", e),
-//! }
+//! let basis = groebner_basis(vec![f1, f2], MonomialOrder::Lex, true)?;
+//! assert!(!basis.is_empty());
+//!
+//! let f3 = ring.parse("y^2 - x")?;
+//! let updated = groebner_basis_incremental(basis, vec![f3], ring.order(), true)?;
+//! assert!(!updated.is_empty());
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 
@@ -125,6 +124,43 @@ pub fn groebner_basis<F: Field>(
     canonicalize: bool,
 ) -> Result<Vec<Polynomial<F>>, GroebnerError> {
     groebner_basis_with_strategy(polynomials, order, canonicalize, &SelectionStrategy::Degree)
+}
+
+/// Update a Groebner basis with additional generators.
+///
+/// The existing basis is reused as reduction context for the new generators before the combined
+/// system is completed with Buchberger. This keeps the API conservative and correctness-oriented:
+/// callers can incrementally add generators without having to rebuild the input list themselves.
+pub fn groebner_basis_incremental<F: Field>(
+    existing_basis: Vec<Polynomial<F>>,
+    new_polynomials: Vec<Polynomial<F>>,
+    order: crate::monomial::MonomialOrder,
+    canonicalize: bool,
+) -> Result<Vec<Polynomial<F>>, GroebnerError> {
+    if existing_basis.is_empty() && new_polynomials.is_empty() {
+        return Err(GroebnerError::EmptyInput);
+    }
+
+    let mut combined: Vec<_> = existing_basis
+        .into_iter()
+        .filter(|polynomial| !polynomial.is_zero())
+        .collect();
+
+    for polynomial in new_polynomials
+        .into_iter()
+        .filter(|polynomial| !polynomial.is_zero())
+    {
+        let reduced = if combined.is_empty() {
+            polynomial
+        } else {
+            polynomial.reduce(&combined).map_err(GroebnerError::from)?
+        };
+        if !reduced.is_zero() {
+            combined.push(reduced);
+        }
+    }
+
+    groebner_basis_with_strategy(combined, order, canonicalize, &SelectionStrategy::Degree)
 }
 
 /// Compute Groebner basis with a selectable S-polynomial selection strategy

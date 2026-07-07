@@ -78,3 +78,15 @@ fn parse_many_accepts_wrapped_polynomials() {
         "x*y - 1"
     );
 }
+
+#[test]
+fn formats_latex_with_named_variables_and_fractions() {
+    let ring = PolynomialRing::<BigRational>::new(["x0", "y"], MonomialOrder::Lex)
+        .expect("ring should be valid");
+    let polynomial = ring.parse("3/2*x0^2*y - y + 1/3").expect("should parse");
+
+    assert_eq!(
+        ring.format_latex(&polynomial).expect("should format"),
+        "\\frac{3}{2} x_{0}^{2} y - y + \\frac{1}{3}"
+    );
+}

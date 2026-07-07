@@ -3,10 +3,12 @@
 //! The crate provides two public computation paths:
 //!
 //! - [`groebner_basis`] for the existing Buchberger implementation over any [`Field`].
+//! - [`groebner_basis_incremental`] for extending an existing Buchberger basis with new generators.
 //! - [`groebner_basis_f4_mod`] for a sparse F4-style implementation over [`PrimeField`].
 //!
 //! Polynomials can be built from strings using [`PolynomialRing`], where the variable list also
-//! defines the lexicographic variable order.
+//! defines the lexicographic variable order. `PolynomialRing` also formats results with variable
+//! names through [`PolynomialRing::format`] and [`PolynomialRing::format_latex`].
 //!
 //! # Buchberger Example
 //! ```
@@ -61,8 +63,8 @@ pub use field::Field;
 pub use finite_field::{PrimeField, PrimeFieldParseError};
 pub use grebauer_moller::filter_gm_pairs;
 pub use groebner::{
-    groebner_basis, groebner_basis_with_strategy, is_groebner_basis, GroebnerError,
-    SelectionStrategy,
+    groebner_basis, groebner_basis_incremental, groebner_basis_with_strategy, is_groebner_basis,
+    GroebnerError, SelectionStrategy,
 };
 pub use monomial::{Monomial, MonomialOrder};
 pub use polynomial::{Polynomial, Term};

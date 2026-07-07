@@ -51,6 +51,12 @@ cargo run --example buchberger
 cargo run --example f4
 ```
 
+To build the API documentation locally:
+
+```bash
+cargo doc --no-deps
+```
+
 ```bash
 cargo test
 ```

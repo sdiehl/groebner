@@ -1,4 +1,23 @@
 //! Polynomial ring helpers for parsing and formatting user-facing polynomials.
+//!
+//! A `PolynomialRing` stores variable names, their order, and the monomial order used by parsed
+//! polynomials. It can format results in plain text or LaTeX using those variable names.
+//!
+//! # Example
+//! ```
+//! use groebner::{MonomialOrder, PolynomialRing};
+//! use num_rational::BigRational;
+//!
+//! let ring = PolynomialRing::<BigRational>::new(["x0", "y"], MonomialOrder::Lex)?;
+//! let polynomial = ring.parse("3/2*x0^2*y - y")?;
+//!
+//! assert_eq!(ring.format(&polynomial)?, "3/2*x0^2*y - y");
+//! assert_eq!(
+//!     ring.format_latex(&polynomial)?,
+//!     "\\frac{3}{2} x_{0}^{2} y - y"
+//! );
+//! # Ok::<(), Box<dyn std::error::Error>>(())
+//! ```
 
 use crate::field::Field;
 use crate::finite_field::PrimeField;
@@ -165,6 +184,50 @@ impl<F: ParseCoefficient> PolynomialRing<F> {
         Ok(output)
     }
 
+    pub fn format_latex(&self, polynomial: &Polynomial<F>) -> Result<String, ParsePolynomialError> {
+        if polynomial.nvars != self.variables.len() {
+            return Err(ParsePolynomialError::WrongVariableCount {
+                expected: self.variables.len(),
+                actual: polynomial.nvars,
+            });
+        }
+
+        if polynomial.is_zero() {
+            return Ok("0".to_string());
+        }
+
+        let mut output = String::new();
+        for term in &polynomial.terms {
+            let coeff = term.coefficient.to_string();
+            let is_negative = coeff.starts_with('-');
+            let abs_coeff = if is_negative { &coeff[1..] } else { &coeff };
+            let coeff_latex = latex_coefficient(abs_coeff);
+            let monomial = self.format_monomial_latex(&term.monomial)?;
+            let term_body = if monomial == "1" {
+                coeff_latex
+            } else if abs_coeff == "1" {
+                monomial
+            } else {
+                format!("{coeff_latex} {monomial}")
+            };
+
+            if output.is_empty() {
+                if is_negative {
+                    output.push('-');
+                }
+                output.push_str(&term_body);
+            } else if is_negative {
+                output.push_str(" - ");
+                output.push_str(&term_body);
+            } else {
+                output.push_str(" + ");
+                output.push_str(&term_body);
+            }
+        }
+
+        Ok(output)
+    }
+
     pub fn format_monomial(&self, monomial: &Monomial) -> Result<String, ParsePolynomialError> {
         if monomial.nvars() != self.variables.len() {
             return Err(ParsePolynomialError::WrongVariableCount {
@@ -187,6 +250,57 @@ impl<F: ParseCoefficient> PolynomialRing<F> {
         } else {
             Ok(factors.join("*"))
         }
+    }
+
+    pub fn format_monomial_latex(
+        &self,
+        monomial: &Monomial,
+    ) -> Result<String, ParsePolynomialError> {
+        if monomial.nvars() != self.variables.len() {
+            return Err(ParsePolynomialError::WrongVariableCount {
+                expected: self.variables.len(),
+                actual: monomial.nvars(),
+            });
+        }
+
+        let mut factors = Vec::new();
+        for (variable, exponent) in self.variables.iter().zip(monomial.exponents.iter()) {
+            match exponent {
+                0 => {}
+                1 => factors.push(latex_variable(variable)),
+                exp => factors.push(format!("{}^{{{exp}}}", latex_variable(variable))),
+            }
+        }
+
+        if factors.is_empty() {
+            Ok("1".to_string())
+        } else {
+            Ok(factors.join(" "))
+        }
+    }
+}
+
+fn latex_coefficient(coefficient: &str) -> String {
+    if let Some((numerator, denominator)) = coefficient.split_once('/') {
+        format!("\\frac{{{numerator}}}{{{denominator}}}")
+    } else {
+        coefficient.to_string()
+    }
+}
+
+fn latex_variable(variable: &str) -> String {
+    let split = variable
+        .char_indices()
+        .rev()
+        .find(|(_, ch)| !ch.is_ascii_digit())
+        .map(|(index, ch)| index + ch.len_utf8())
+        .unwrap_or(0);
+    let (base, digits) = variable.split_at(split);
+    let escaped_base = base.replace('_', "\\_");
+    if digits.is_empty() || base.is_empty() {
+        escaped_base
+    } else {
+        format!("{escaped_base}_{{{digits}}}")
     }
 }
 
