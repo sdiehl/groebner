@@ -25,6 +25,8 @@ use crate::finite_field::PrimeField;
 use crate::groebner::GroebnerError;
 use crate::monomial::{Monomial, MonomialOrder};
 use crate::polynomial::{Polynomial, Term};
+#[cfg(feature = "parallel")]
+use rayon::prelude::*;
 use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Clone)]
@@ -390,6 +392,12 @@ fn reduce_sparse_matrix<const P: u32>(
         .map(|(index, monomial)| (monomial, index))
         .collect();
 
+    #[cfg(feature = "parallel")]
+    let mut encoded: Vec<_> = rows
+        .par_iter()
+        .map(|row| encode_row(row, &column_indices))
+        .collect();
+    #[cfg(not(feature = "parallel"))]
     let mut encoded: Vec<_> = rows
         .iter()
         .map(|row| encode_row(row, &column_indices))
@@ -554,27 +562,11 @@ fn canonicalize_basis<const P: u32>(
         }
     }
 
-    let mut reduced = Vec::new();
-    for i in 0..basis.len() {
-        let others: Vec<_> = basis
-            .iter()
-            .enumerate()
-            .filter_map(|(j, polynomial)| {
-                if i == j {
-                    None
-                } else {
-                    Some(polynomial.clone())
-                }
-            })
-            .collect();
-        let polynomial = basis[i]
-            .reduce(&others)
-            .map_err(GroebnerError::from)?
-            .make_monic();
-        if !polynomial.is_zero() {
-            reduced.push(polynomial);
-        }
-    }
+    let reduced_results = reduce_basis_members(&basis)?;
+    let mut reduced = reduced_results
+        .into_iter()
+        .filter(|polynomial| !polynomial.is_zero())
+        .collect::<Vec<_>>();
 
     reduced.sort_by(|a, b| match (a.leading_monomial(), b.leading_monomial()) {
         (Some(ma), Some(mb)) => mb.compare(ma, order),
@@ -588,4 +580,44 @@ fn canonicalize_basis<const P: u32>(
     } else {
         Ok(reduced)
     }
+}
+
+#[cfg(feature = "parallel")]
+fn reduce_basis_members<const P: u32>(
+    basis: &[Polynomial<PrimeField<P>>],
+) -> Result<Vec<Polynomial<PrimeField<P>>>, GroebnerError> {
+    (0..basis.len())
+        .into_par_iter()
+        .map(|i| reduce_basis_member(basis, i))
+        .collect()
+}
+
+#[cfg(not(feature = "parallel"))]
+fn reduce_basis_members<const P: u32>(
+    basis: &[Polynomial<PrimeField<P>>],
+) -> Result<Vec<Polynomial<PrimeField<P>>>, GroebnerError> {
+    (0..basis.len())
+        .map(|i| reduce_basis_member(basis, i))
+        .collect()
+}
+
+fn reduce_basis_member<const P: u32>(
+    basis: &[Polynomial<PrimeField<P>>],
+    index: usize,
+) -> Result<Polynomial<PrimeField<P>>, GroebnerError> {
+    let others: Vec<_> = basis
+        .iter()
+        .enumerate()
+        .filter_map(|(j, polynomial)| {
+            if index == j {
+                None
+            } else {
+                Some(polynomial.clone())
+            }
+        })
+        .collect();
+    Ok(basis[index]
+        .reduce(&others)
+        .map_err(GroebnerError::from)?
+        .make_monic())
 }

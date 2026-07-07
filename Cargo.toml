@@ -33,6 +33,11 @@ path = "src/lib.rs"
 num-bigint = "0.5"
 num-rational = "0.4"
 num-traits = "0.2"
+rayon = { version = "1.10", optional = true }
+
+[features]
+default = ["parallel"]
+parallel = ["dep:rayon"]
 
 [dev-dependencies]
 criterion = "0.5"

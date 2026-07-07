@@ -18,8 +18,8 @@
 - [ ] Implement F4/F5 Algorithms
   - [x] Add sparse F4 implementation over prime fields.
   - [ ] Add faster Groebner basis algorithms (F5) for large systems.
-- [ ] Parallelization
-  - Parallelize S-polynomial reduction and other steps for performance.
+- [x] Parallelization
+  - [x] Parallelize batched S-polynomial reduction and F4 row encoding with Rayon.
 - [x] Sparse Polynomial Representations
   - [x] Optimize storage and arithmetic for sparse polynomials.
 - [x] Improved Reduction Strategies to minimize unnecessary S-polynomial computations

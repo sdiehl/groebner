@@ -42,6 +42,9 @@ let basis = groebner_basis(vec![f1, f2], ring.order(), true)?;
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
+The default `parallel` feature enables Rayon-backed APIs such as `groebner_basis_parallel` and
+`is_groebner_basis_parallel` for independent Buchberger reductions.
+
 ## Test Suite
 
 To run the examples, use:

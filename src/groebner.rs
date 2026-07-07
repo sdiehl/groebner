@@ -31,6 +31,8 @@ use crate::grebauer_moller;
 use crate::monomial::Monomial;
 use crate::polynomial::Polynomial;
 use crate::sugar::{select_next_by_sugar, SugaredPolynomial};
+#[cfg(feature = "parallel")]
+use rayon::prelude::*;
 use std::cmp::Ordering;
 use std::collections::BinaryHeap;
 use std::fmt;
@@ -67,6 +69,7 @@ impl fmt::Display for GroebnerError {
 
 impl std::error::Error for GroebnerError {}
 
+#[derive(Clone, Debug)]
 pub struct CriticalPair {
     pub i: usize,
     pub j: usize,
@@ -124,6 +127,73 @@ pub fn groebner_basis<F: Field>(
     canonicalize: bool,
 ) -> Result<Vec<Polynomial<F>>, GroebnerError> {
     groebner_basis_with_strategy(polynomials, order, canonicalize, &SelectionStrategy::Degree)
+}
+
+/// Compute a Groebner basis using parallel batches of equal-degree critical pairs.
+///
+/// This uses Buchberger's algorithm with degree-based pair selection, but each selected
+/// minimal-degree batch is reduced against a fixed snapshot of the current basis in parallel.
+/// The final basis is minimized and canonicalized in the same shape as [`groebner_basis`].
+///
+/// This API is available with the default `parallel` feature and requires coefficient fields to
+/// be [`Send`] and [`Sync`] so reductions can run on Rayon worker threads.
+#[cfg(feature = "parallel")]
+pub fn groebner_basis_parallel<F: Field + Send + Sync>(
+    polynomials: Vec<Polynomial<F>>,
+    order: crate::monomial::MonomialOrder,
+    canonicalize: bool,
+) -> Result<Vec<Polynomial<F>>, GroebnerError> {
+    if polynomials.is_empty() {
+        return Err(GroebnerError::EmptyInput);
+    }
+    let mut basis: Vec<Polynomial<F>> = polynomials
+        .into_iter()
+        .filter(|p| !p.is_zero())
+        .map(|p| p.make_monic())
+        .collect();
+    if basis.is_empty() {
+        return Err(GroebnerError::EmptyInput);
+    }
+
+    let mut pairs = all_critical_pairs(&basis)?;
+    while !pairs.is_empty() {
+        let selected = select_min_degree_critical_pairs(&mut pairs);
+        let snapshot = basis.clone();
+        let mut new_polynomials = selected
+            .par_iter()
+            .map(|pair| reduce_pair_against_basis(pair, &snapshot))
+            .collect::<Result<Vec<_>, _>>()?
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>();
+
+        if new_polynomials.is_empty() {
+            continue;
+        }
+
+        new_polynomials.sort_by(|a, b| match (a.leading_monomial(), b.leading_monomial()) {
+            (Some(ma), Some(mb)) => mb.compare(ma, order),
+            (Some(_), None) => std::cmp::Ordering::Less,
+            (None, Some(_)) => std::cmp::Ordering::Greater,
+            (None, None) => std::cmp::Ordering::Equal,
+        });
+        new_polynomials.dedup_by(|a, b| a.leading_monomial() == b.leading_monomial());
+
+        for polynomial in new_polynomials {
+            let reduced = polynomial.reduce(&basis).map_err(GroebnerError::from)?;
+            if reduced.is_zero() {
+                continue;
+            }
+            let monic_reduced = reduced.make_monic();
+            let new_index = basis.len();
+            for (i, existing) in basis.iter().enumerate() {
+                pairs.push(CriticalPair::new(i, new_index, existing, &monic_reduced)?);
+            }
+            basis.push(monic_reduced);
+        }
+    }
+
+    finish_basis(basis, canonicalize)
 }
 
 /// Update a Groebner basis with additional generators.
@@ -328,6 +398,36 @@ pub fn groebner_basis_with_strategy<F: Field>(
             basis.push(monic_reduced);
         }
     }
+    finish_basis(basis, canonicalize)
+}
+
+fn minimize_basis<F: Field>(basis: &mut Vec<Polynomial<F>>) {
+    let mut to_remove = Vec::new();
+    for i in 0..basis.len() {
+        for j in 0..basis.len() {
+            if i != j {
+                if let (Some(lm_i), Some(lm_j)) =
+                    (basis[i].leading_monomial(), basis[j].leading_monomial())
+                {
+                    if lm_j.divides(lm_i) {
+                        to_remove.push(i);
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    to_remove.sort_unstable();
+    to_remove.reverse();
+    for &i in &to_remove {
+        basis.remove(i);
+    }
+}
+
+fn finish_basis<F: Field>(
+    mut basis: Vec<Polynomial<F>>,
+    canonicalize: bool,
+) -> Result<Vec<Polynomial<F>>, GroebnerError> {
     minimize_basis(&mut basis);
     if canonicalize {
         for poly in &mut basis {
@@ -375,27 +475,60 @@ pub fn groebner_basis_with_strategy<F: Field>(
     Ok(basis)
 }
 
-fn minimize_basis<F: Field>(basis: &mut Vec<Polynomial<F>>) {
-    let mut to_remove = Vec::new();
+#[cfg(feature = "parallel")]
+fn all_critical_pairs<F: Field>(
+    basis: &[Polynomial<F>],
+) -> Result<Vec<CriticalPair>, GroebnerError> {
+    let mut pairs = Vec::new();
     for i in 0..basis.len() {
-        for j in 0..basis.len() {
-            if i != j {
-                if let (Some(lm_i), Some(lm_j)) =
-                    (basis[i].leading_monomial(), basis[j].leading_monomial())
-                {
-                    if lm_j.divides(lm_i) {
-                        to_remove.push(i);
-                        break;
-                    }
-                }
-            }
+        for j in i + 1..basis.len() {
+            pairs.push(CriticalPair::new(i, j, &basis[i], &basis[j])?);
         }
     }
-    to_remove.sort_unstable();
-    to_remove.reverse();
-    for &i in &to_remove {
-        basis.remove(i);
+    Ok(pairs)
+}
+
+#[cfg(feature = "parallel")]
+fn select_min_degree_critical_pairs(pairs: &mut Vec<CriticalPair>) -> Vec<CriticalPair> {
+    let Some(min_degree) = pairs.iter().map(|pair| pair.degree).min() else {
+        return Vec::new();
+    };
+
+    let mut selected = Vec::new();
+    let mut remaining = Vec::new();
+    for pair in pairs.drain(..) {
+        if pair.degree == min_degree {
+            selected.push(pair);
+        } else {
+            remaining.push(pair);
+        }
     }
+    *pairs = remaining;
+    selected
+}
+
+#[cfg(feature = "parallel")]
+fn reduce_pair_against_basis<F: Field>(
+    pair: &CriticalPair,
+    basis: &[Polynomial<F>],
+) -> Result<Option<Polynomial<F>>, GroebnerError> {
+    if pair.i >= basis.len() || pair.j >= basis.len() {
+        return Ok(None);
+    }
+    let poly_i = &basis[pair.i];
+    let poly_j = &basis[pair.j];
+    let lm_i = poly_i
+        .leading_monomial()
+        .ok_or(GroebnerError::NoLeadingMonomial(pair.i))?;
+    let lm_j = poly_j
+        .leading_monomial()
+        .ok_or(GroebnerError::NoLeadingMonomial(pair.j))?;
+    if pair.lcm == lm_i.multiply(lm_j) {
+        return Ok(None);
+    }
+    let s_poly = poly_i.s_polynomial(poly_j).map_err(GroebnerError::from)?;
+    let reduced = s_poly.reduce(basis).map_err(GroebnerError::from)?;
+    Ok((!reduced.is_zero()).then(|| reduced.make_monic()))
 }
 
 pub fn is_groebner_basis<F: Field>(basis: &[Polynomial<F>]) -> Result<bool, GroebnerError> {
@@ -411,4 +544,28 @@ pub fn is_groebner_basis<F: Field>(basis: &[Polynomial<F>]) -> Result<bool, Groe
         }
     }
     Ok(true)
+}
+
+/// Check the Buchberger criterion in parallel.
+///
+/// This API is available with the default `parallel` feature and evaluates independent
+/// S-polynomial reductions on Rayon worker threads.
+#[cfg(feature = "parallel")]
+pub fn is_groebner_basis_parallel<F: Field + Send + Sync>(
+    basis: &[Polynomial<F>],
+) -> Result<bool, GroebnerError> {
+    let pairs = (0..basis.len())
+        .flat_map(|i| (i + 1..basis.len()).map(move |j| (i, j)))
+        .collect::<Vec<_>>();
+    let checks = pairs
+        .par_iter()
+        .map(|&(i, j)| {
+            let s_poly = basis[i]
+                .s_polynomial(&basis[j])
+                .map_err(GroebnerError::from)?;
+            let reduced = s_poly.reduce(basis).map_err(GroebnerError::from)?;
+            Ok(reduced.is_zero())
+        })
+        .collect::<Result<Vec<_>, GroebnerError>>()?;
+    Ok(checks.into_iter().all(|is_zero| is_zero))
 }

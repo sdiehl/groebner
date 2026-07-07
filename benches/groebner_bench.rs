@@ -1,6 +1,8 @@
 #![allow(clippy::expect_used)]
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
+#[cfg(feature = "parallel")]
+use groebner::groebner_basis_parallel;
 use groebner::{
     groebner_basis, groebner_basis_f4_mod, MonomialOrder, Polynomial, PolynomialRing, PrimeField,
 };
@@ -83,6 +85,24 @@ fn bench_groebner_small_axf4_families(c: &mut Criterion) {
                         black_box(
                             groebner_basis_f4_mod(polys, F32003::modulus(), MonomialOrder::GrLex)
                                 .expect("F4 GF(p) benchmark should compute"),
+                        );
+                    },
+                    criterion::BatchSize::SmallInput,
+                );
+            },
+        );
+
+        #[cfg(feature = "parallel")]
+        group.bench_with_input(
+            BenchmarkId::new("parallel_buchberger_gf32003", name),
+            &(input, nvars, limit),
+            |b, (input, nvars, limit)| {
+                b.iter_batched(
+                    || parse_prime_system(input, *nvars, *limit),
+                    |polys| {
+                        black_box(
+                            groebner_basis_parallel(polys, MonomialOrder::GrLex, true)
+                                .expect("parallel GF(p) benchmark should compute"),
                         );
                     },
                     criterion::BatchSize::SmallInput,

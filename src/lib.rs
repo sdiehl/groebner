@@ -4,6 +4,7 @@
 //!
 //! - [`groebner_basis`] for the existing Buchberger implementation over any [`Field`].
 //! - [`groebner_basis_incremental`] for extending an existing Buchberger basis with new generators.
+//! - [`groebner_basis_parallel`] for Rayon-backed Buchberger batches when the `parallel` feature is enabled.
 //! - [`groebner_basis_f4_mod`] for a sparse F4-style implementation over [`PrimeField`].
 //!
 //! Polynomials can be built from strings using [`PolynomialRing`], where the variable list also
@@ -31,6 +32,25 @@
 //!     Err(e) => panic!("Groebner basis computation failed: {}", e),
 //! }
 //! # Ok::<(), Box<dyn std::error::Error>>(())
+//! ```
+//!
+//! # Parallel Buchberger Example
+//! ```
+//! # #[cfg(feature = "parallel")]
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! use groebner::{groebner_basis_parallel, MonomialOrder, PolynomialRing};
+//! use num_rational::BigRational;
+//!
+//! let ring = PolynomialRing::<BigRational>::new(["x", "y", "z"], MonomialOrder::GrLex)?;
+//! let f1 = ring.parse("x^2 + y^2 + z^2 - 1")?;
+//! let f2 = ring.parse("x*y - z")?;
+//! let basis = groebner_basis_parallel(vec![f1, f2], ring.order(), true)?;
+//!
+//! assert!(!basis.is_empty());
+//! # Ok::<(), Box<dyn std::error::Error>>(())
+//! # }
+//! # #[cfg(not(feature = "parallel"))]
+//! # fn main() {}
 //! ```
 //!
 //! # F4 Example
@@ -66,6 +86,8 @@ pub use groebner::{
     groebner_basis, groebner_basis_incremental, groebner_basis_with_strategy, is_groebner_basis,
     GroebnerError, SelectionStrategy,
 };
+#[cfg(feature = "parallel")]
+pub use groebner::{groebner_basis_parallel, is_groebner_basis_parallel};
 pub use monomial::{Monomial, MonomialOrder};
 pub use polynomial::{Polynomial, Term};
 pub use ring::{ParsePolynomialError, PolynomialRing};
