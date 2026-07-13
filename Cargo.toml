@@ -40,7 +40,7 @@ default = ["parallel"]
 parallel = ["dep:rayon"]
 
 [dev-dependencies]
-criterion = "0.5"
+criterion = "0.8"
 
 [[example]]
 name = "basic"
