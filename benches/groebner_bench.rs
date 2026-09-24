@@ -1,12 +1,13 @@
 #![allow(clippy::expect_used)]
 
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 #[cfg(feature = "parallel")]
 use groebner::groebner_basis_parallel;
 use groebner::{
-    groebner_basis, groebner_basis_f4_mod, MonomialOrder, Polynomial, PolynomialRing, PrimeField,
+    groebner_basis, groebner_basis_f4, MonomialOrder, Polynomial, PolynomialRing, PrimeField,
 };
 use num_rational::BigRational;
+use std::hint::black_box;
 
 type F32003 = PrimeField<32003>;
 
@@ -66,8 +67,7 @@ fn bench_groebner_small_axf4_families(c: &mut Criterion) {
                     || parse_prime_system(input, *nvars, *limit),
                     |polys| {
                         black_box(
-                            groebner_basis(polys, MonomialOrder::GrLex, true)
-                                .expect("GF(p) benchmark should compute"),
+                            groebner_basis(polys, true).expect("GF(p) benchmark should compute"),
                         );
                     },
                     criterion::BatchSize::SmallInput,
@@ -83,7 +83,7 @@ fn bench_groebner_small_axf4_families(c: &mut Criterion) {
                     || parse_prime_system(input, *nvars, *limit),
                     |polys| {
                         black_box(
-                            groebner_basis_f4_mod(polys, F32003::modulus(), MonomialOrder::GrLex)
+                            groebner_basis_f4(polys, true)
                                 .expect("F4 GF(p) benchmark should compute"),
                         );
                     },
@@ -101,7 +101,7 @@ fn bench_groebner_small_axf4_families(c: &mut Criterion) {
                     || parse_prime_system(input, *nvars, *limit),
                     |polys| {
                         black_box(
-                            groebner_basis_parallel(polys, MonomialOrder::GrLex, true)
+                            groebner_basis_parallel(polys, true)
                                 .expect("parallel GF(p) benchmark should compute"),
                         );
                     },
@@ -118,8 +118,7 @@ fn bench_groebner_small_axf4_families(c: &mut Criterion) {
                     || parse_rational_system(input, *nvars, *limit),
                     |polys| {
                         black_box(
-                            groebner_basis(polys, MonomialOrder::GrLex, true)
-                                .expect("rational benchmark should compute"),
+                            groebner_basis(polys, true).expect("rational benchmark should compute"),
                         );
                     },
                     criterion::BatchSize::SmallInput,
@@ -131,9 +130,33 @@ fn bench_groebner_small_axf4_families(c: &mut Criterion) {
     group.finish();
 }
 
+fn bench_f4_full_systems(c: &mut Criterion) {
+    let mut group = c.benchmark_group("f4_axf4_full");
+    group.sample_size(10);
+    for (name, input, nvars) in [("cyclic7", CYCLIC7, 7), ("katsura7", KATSURA7, 8)] {
+        group.bench_with_input(
+            BenchmarkId::new("f4_gf32003", name),
+            &(input, nvars),
+            |b, (input, nvars)| {
+                b.iter_batched(
+                    || parse_prime_system(input, *nvars, usize::MAX),
+                    |polys| {
+                        black_box(
+                            groebner_basis_f4(polys, true).expect("F4 benchmark should compute"),
+                        );
+                    },
+                    criterion::BatchSize::SmallInput,
+                );
+            },
+        );
+    }
+    group.finish();
+}
+
 criterion_group!(
     benches,
     bench_axf4_parsing,
-    bench_groebner_small_axf4_families
+    bench_groebner_small_axf4_families,
+    bench_f4_full_systems
 );
 criterion_main!(benches);

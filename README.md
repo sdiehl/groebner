@@ -9,38 +9,55 @@ Examples:
 
 ## Usage
 
-To use in your project:
-
 ```bash
 cargo add groebner
 ```
 
-Create polynomials from strings with an explicit variable order:
+Parse polynomials with named variables under a monomial order and compute a reduced Groebner
+basis with F4 (over `PrimeField<P>`, `Zp` or `BigRational`):
 
 ```rust
-use groebner::{groebner_basis, MonomialOrder, PolynomialRing};
+use groebner::{groebner_basis_f4, MonomialOrder, PolynomialRing, PrimeField};
+
+let ring = PolynomialRing::<PrimeField<32003>>::new(["x", "y"], MonomialOrder::GRevLex)?;
+let polys = ring.parse_many("x^2 - y; x*y - 1")?;
+let basis = groebner_basis_f4(polys, true)?;
+for p in &basis {
+    println!("{}", ring.format(p)?);
+}
+# Ok::<(), Box<dyn std::error::Error>>(())
+```
+
+Buchberger over any `Field` is available as `groebner_basis` (and `groebner_basis_parallel`
+with the default `parallel` feature). Runtime primes up to 64 bits use `Zp`:
+
+```rust
+use groebner::{groebner_basis_f4, MonomialOrder, PolynomialRing, Zp};
+
+let ring = PolynomialRing::<Zp>::with_modulus(["x", "y"], MonomialOrder::Lex, 1_000_003)?;
+let basis = groebner_basis_f4(ring.parse_many("x^2 - y; x*y - 1")?, true)?;
+# Ok::<(), Box<dyn std::error::Error>>(())
+```
+
+`Ideal` wraps a reduced basis and answers the usual questions: membership and normal forms,
+elimination ideals, zero-dimensionality, the standard monomial basis and its dimension,
+radical membership, multiplication matrices, and change of order (FGLM for zero-dimensional
+ideals):
+
+```rust
+use groebner::{Ideal, MonomialOrder, PolynomialRing};
 use num_rational::BigRational;
 
-let ring = PolynomialRing::<BigRational>::new(["z3", "z1", "z2"], MonomialOrder::Lex)?;
-let f1 = ring.parse("z1^2 - z2")?;
-let f2 = ring.parse("z1*z2 - 1")?;
-let basis = groebner_basis(vec![f1, f2], ring.order(), true)?;
+let ring = PolynomialRing::<BigRational>::new(["x", "y"], MonomialOrder::GRevLex)?;
+let ideal = Ideal::new(ring.parse_many("x^2 + y^2 - 1; x - y^3")?)?;
+assert_eq!(ideal.vector_space_dimension(), Some(6));
+let lex = ideal.change_order(MonomialOrder::Lex)?;
+assert!(lex.contains(&ring.parse("y^6 + y^2 - 1")?)?);
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
-For modular computations over a machine prime:
-
-```rust
-use groebner::{groebner_basis, MonomialOrder, PolynomialRing, PrimeField};
-
-type F32003 = PrimeField<32003>;
-
-let ring = PolynomialRing::<F32003>::new(["x", "y"], MonomialOrder::GrLex)?;
-let f1 = ring.parse("x^2 - y")?;
-let f2 = ring.parse("x*y - 1")?;
-let basis = groebner_basis(vec![f1, f2], ring.order(), true)?;
-# Ok::<(), Box<dyn std::error::Error>>(())
-```
+Monomial orders: `Lex`, `GrLex`, `GRevLex`, `MonomialOrder::weighted(weights, tie_break)`,
+and product orders via `MonomialOrder::block` or `MonomialOrder::elimination(k, rest)`.
 
 ## Test Suite
 
@@ -60,6 +77,9 @@ The classic papers on this topic:
 1. Giovini, A., Mora, T., Niesi, G., Robbiano, L., & Traverso, C. (1991, June). “One sugar cube, please” or selection strategies in the Buchberger algorithm. In Proceedings of the 1991 international symposium on Symbolic and algebraic computation (pp. 49-54).
 1. Gebauer, R., & Möller, H. M. (1988). On an installation of Buchberger's algorithm. Journal of Symbolic computation, 6(2-3), 275-286.
 1. Roune, B. H., & Stillman, M. (2012, July). Practical Gröbner basis computation. In Proceedings of the 37th International Symposium on Symbolic and Algebraic Computation (pp. 203-210).
+1. Faugère, J. C. (1999). A new efficient algorithm for computing Gröbner bases (F4). Journal of Pure and Applied Algebra, 139(1-3), 61-88.
+1. Faugère, J. C., Gianni, P., Lazard, D., & Mora, T. (1993). Efficient computation of zero-dimensional Gröbner bases by change of ordering. Journal of Symbolic Computation, 16(4), 329-344.
+1. Monagan, M., & Pearce, R. (2015). A compact parallel implementation of F4. In Proceedings of PASCO 2015 (pp. 95-100).
 
 ## License
 

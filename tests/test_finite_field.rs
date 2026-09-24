@@ -39,8 +39,8 @@ fn computes_small_groebner_basis_over_prime_field() {
     let f1 = ring.parse("x^2 - y").expect("f1 should parse");
     let f2 = ring.parse("x*y - 1").expect("f2 should parse");
 
-    let basis = groebner_basis(vec![f1, f2], ring.order(), true)
-        .expect("Groebner basis should compute over GF(p)");
+    let basis =
+        groebner_basis(vec![f1, f2], true).expect("Groebner basis should compute over GF(p)");
 
     assert!(!basis.is_empty());
 }

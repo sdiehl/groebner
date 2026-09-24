@@ -22,12 +22,11 @@ fn incremental_basis_matches_full_recompute() {
     let f2 = ring.parse("x*y - 1").expect("f2 should parse");
     let f3 = ring.parse("y^2 - x").expect("f3 should parse");
 
-    let initial = groebner_basis(vec![f1.clone(), f2.clone()], ring.order(), true)
-        .expect("initial basis should compute");
-    let incremental = groebner_basis_incremental(initial, vec![f3.clone()], ring.order(), true)
+    let initial =
+        groebner_basis(vec![f1.clone(), f2.clone()], true).expect("initial basis should compute");
+    let incremental = groebner_basis_incremental(initial, vec![f3.clone()], true)
         .expect("incremental basis should compute");
-    let full =
-        groebner_basis(vec![f1, f2, f3], ring.order(), true).expect("full basis should compute");
+    let full = groebner_basis(vec![f1, f2, f3], true).expect("full basis should compute");
 
     assert_eq!(basis_signature(&incremental), basis_signature(&full));
 }

@@ -1,25 +1,17 @@
-//! Field trait and Rational number implementation
+//! The [`Field`] trait and its rational implementation.
 //!
-//! This module defines the `Field` trait, which abstracts the algebraic concept of a field,
-//! and provides a rational number implementation (`Rational`). Fields are used as coefficient
-//! domains for polynomials in Groebner basis computations.
-//!
-//! # Extending
-//! To use your own field type, implement the `Field` trait for your type.
-//!
-//! # Example
 //! ```
 //! use groebner::Field;
 //! use num_rational::BigRational;
 //! let a = BigRational::new(1.into(), 2.into());
 //! let b = BigRational::new(1.into(), 3.into());
-//! let sum = a.add(&b);
-//! assert_eq!(sum, BigRational::new(5.into(), 6.into()));
+//! assert_eq!(a.add(&b), BigRational::new(5.into(), 6.into()));
 //! ```
 
 use num_rational::BigRational;
 use std::fmt;
 
+/// Coefficient field for polynomials. Implement this to use your own coefficient type.
 pub trait Field: Clone + PartialEq + fmt::Debug + fmt::Display {
     fn zero() -> Self;
     fn one() -> Self;
@@ -36,6 +28,22 @@ pub trait Field: Clone + PartialEq + fmt::Debug + fmt::Display {
     fn inverse(&self) -> Option<Self>;
     fn divide(&self, other: &Self) -> Option<Self> {
         other.inverse().map(|inv| self.multiply(&inv))
+    }
+}
+
+/// A prime field whose elements fit in a machine word, used by the fast F4 linear algebra.
+pub trait ModularField: Field + Copy + Send + Sync {
+    /// The prime, or 0 for a placeholder constant that has not been bound to a modulus yet.
+    fn modulus(&self) -> u64;
+    fn residue(&self) -> u64;
+    fn from_residue(residue: u64, modulus: u64) -> Self;
+    /// Residue in `[0, modulus)`, mapping an unbound placeholder as a signed integer.
+    fn residue_mod(&self, modulus: u64) -> u64 {
+        if self.modulus() == 0 {
+            i128::from(self.residue() as i64).rem_euclid(i128::from(modulus)) as u64
+        } else {
+            self.residue()
+        }
     }
 }
 

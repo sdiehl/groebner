@@ -20,7 +20,7 @@
 //! ```
 
 use crate::field::Field;
-use crate::finite_field::PrimeField;
+use crate::finite_field::{PrimeField, Zp};
 use crate::monomial::{Monomial, MonomialOrder};
 use crate::polynomial::{Polynomial, Term};
 use num_rational::BigRational;
@@ -43,6 +43,7 @@ pub enum ParsePolynomialError {
     DivisionByZero,
     TrailingInput(String),
     WrongVariableCount { expected: usize, actual: usize },
+    MissingModulus,
 }
 
 impl fmt::Display for ParsePolynomialError {
@@ -73,6 +74,9 @@ impl fmt::Display for ParsePolynomialError {
                 f,
                 "polynomial has {actual} variables, but this ring has {expected}"
             ),
+            ParsePolynomialError::MissingModulus => {
+                write!(f, "ring has no modulus; use PolynomialRing::with_modulus")
+            }
         }
     }
 }
@@ -84,11 +88,37 @@ pub struct PolynomialRing<F> {
     variables: Vec<String>,
     variable_indices: HashMap<String, usize>,
     order: MonomialOrder,
+    modulus: Option<u64>,
     _field: PhantomData<F>,
 }
 
 impl<F> PolynomialRing<F> {
     pub fn new<I, S>(variables: I, order: MonomialOrder) -> Result<Self, ParsePolynomialError>
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        Self::build(variables, order, None)
+    }
+
+    /// A ring over a runtime prime field, needed to parse [`Zp`] coefficients.
+    pub fn with_modulus<I, S>(
+        variables: I,
+        order: MonomialOrder,
+        modulus: u64,
+    ) -> Result<Self, ParsePolynomialError>
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        Self::build(variables, order, Some(modulus))
+    }
+
+    fn build<I, S>(
+        variables: I,
+        order: MonomialOrder,
+        modulus: Option<u64>,
+    ) -> Result<Self, ParsePolynomialError>
     where
         I: IntoIterator<Item = S>,
         S: Into<String>,
@@ -109,6 +139,7 @@ impl<F> PolynomialRing<F> {
             variables,
             variable_indices,
             order,
+            modulus,
             _field: PhantomData,
         })
     }
@@ -118,7 +149,22 @@ impl<F> PolynomialRing<F> {
     }
 
     pub fn order(&self) -> MonomialOrder {
-        self.order
+        self.order.clone()
+    }
+
+    pub fn modulus(&self) -> Option<u64> {
+        self.modulus
+    }
+
+    /// The same ring under a different monomial order.
+    pub fn with_order(&self, order: MonomialOrder) -> Self {
+        Self {
+            variables: self.variables.clone(),
+            variable_indices: self.variable_indices.clone(),
+            order,
+            modulus: self.modulus,
+            _field: PhantomData,
+        }
     }
 }
 
@@ -476,7 +522,7 @@ impl<'a, F: ParseCoefficient> ParserFor<'a, F> {
         Ok(Polynomial::new(
             terms,
             self.ring.variables.len(),
-            self.ring.order,
+            self.ring.order.clone(),
         ))
     }
 
@@ -542,7 +588,10 @@ impl<'a, F: ParseCoefficient> ParserFor<'a, F> {
             return Err(ParsePolynomialError::ExpectedTerm);
         }
 
-        Ok(Term::new(coefficient, Monomial::new(exponents)))
+        Ok(Term::new(
+            coefficient.bind_modulus(self.ring.modulus),
+            Monomial::new(exponents),
+        ))
     }
 
     fn parse_coefficient(&mut self, numerator: &str) -> Result<F, ParsePolynomialError> {
@@ -563,7 +612,7 @@ impl<'a, F: ParseCoefficient> ParserFor<'a, F> {
             None
         };
 
-        F::parse_coefficient(numerator, denominator.as_deref())
+        F::parse_coefficient(numerator, denominator.as_deref(), self.ring.modulus)
     }
 
     fn parse_optional_exponent(&mut self) -> Result<u32, ParsePolynomialError> {
@@ -590,14 +639,20 @@ impl<'a, F: ParseCoefficient> ParserFor<'a, F> {
     }
 }
 
+/// Coefficient parsing for [`PolynomialRing::parse`]; implement for custom fields.
 pub trait ParseCoefficient: Field {
     fn minus_one() -> Self {
         Self::one().negate()
     }
 
+    fn bind_modulus(self, _modulus: Option<u64>) -> Self {
+        self
+    }
+
     fn parse_coefficient(
         numerator: &str,
         denominator: Option<&str>,
+        modulus: Option<u64>,
     ) -> Result<Self, ParsePolynomialError>;
 }
 
@@ -605,33 +660,60 @@ impl ParseCoefficient for BigRational {
     fn parse_coefficient(
         numerator: &str,
         denominator: Option<&str>,
+        _modulus: Option<u64>,
     ) -> Result<Self, ParsePolynomialError> {
         let text = if let Some(denominator) = denominator {
             format!("{numerator}/{denominator}")
         } else {
             numerator.to_string()
         };
-
         BigRational::from_str(&text).map_err(|_| ParsePolynomialError::InvalidNumber(text))
     }
+}
+
+fn modular_quotient<F: Field>(
+    numerator: F,
+    denominator: Option<Result<F, ParsePolynomialError>>,
+) -> Result<F, ParsePolynomialError> {
+    let Some(denominator) = denominator else {
+        return Ok(numerator);
+    };
+    let inverse = denominator?
+        .inverse()
+        .ok_or(ParsePolynomialError::DivisionByZero)?;
+    Ok(numerator.multiply(&inverse))
 }
 
 impl<const P: u32> ParseCoefficient for PrimeField<P> {
     fn parse_coefficient(
         numerator: &str,
         denominator: Option<&str>,
+        _modulus: Option<u64>,
     ) -> Result<Self, ParsePolynomialError> {
-        let numerator = PrimeField::<P>::parse_digits_mod(numerator)
-            .map_err(|_| ParsePolynomialError::InvalidNumber(numerator.to_string()))?;
-        let Some(denominator) = denominator else {
-            return Ok(numerator);
+        let parse = |digits: &str| {
+            PrimeField::<P>::parse_digits(digits)
+                .map_err(|_| ParsePolynomialError::InvalidNumber(digits.to_string()))
         };
-        let denominator = PrimeField::<P>::parse_digits_mod(denominator)
-            .map_err(|_| ParsePolynomialError::InvalidNumber(denominator.to_string()))?;
-        let inverse = denominator
-            .inverse()
-            .ok_or(ParsePolynomialError::DivisionByZero)?;
-        Ok(numerator.multiply(&inverse))
+        modular_quotient(parse(numerator)?, denominator.map(parse))
+    }
+}
+
+impl ParseCoefficient for Zp {
+    fn bind_modulus(self, modulus: Option<u64>) -> Self {
+        modulus.map_or(self, |m| self.bind(m))
+    }
+
+    fn parse_coefficient(
+        numerator: &str,
+        denominator: Option<&str>,
+        modulus: Option<u64>,
+    ) -> Result<Self, ParsePolynomialError> {
+        let modulus = modulus.ok_or(ParsePolynomialError::MissingModulus)?;
+        let parse = |digits: &str| {
+            Zp::parse_digits(digits, modulus)
+                .map_err(|_| ParsePolynomialError::InvalidNumber(digits.to_string()))
+        };
+        modular_quotient(parse(numerator)?, denominator.map(parse))
     }
 }
 

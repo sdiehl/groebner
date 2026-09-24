@@ -9,12 +9,7 @@ fn test_groebner_basis_gm_strategy() {
     let f1 = ring.parse("x^2 - y").expect("f1 should parse");
     let f2 = ring.parse("x*y - 1").expect("f2 should parse");
     let polynomials = vec![f1, f2];
-    let result = groebner_basis_with_strategy(
-        polynomials,
-        MonomialOrder::Lex,
-        true,
-        &SelectionStrategy::GebauerMoller,
-    );
+    let result = groebner_basis_with_strategy(polynomials, true, &SelectionStrategy::GebauerMoller);
     assert!(
         result.is_ok(),
         "Gebauer–Möller strategy Groebner basis computation failed"

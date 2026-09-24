@@ -1,7 +1,7 @@
 #![allow(clippy::expect_used)]
 
 use groebner::{
-    groebner_basis, groebner_basis_f4_mod, is_groebner_basis, MonomialOrder, Polynomial,
+    groebner_basis, groebner_basis_f4, is_groebner_basis, MonomialOrder, Polynomial,
     PolynomialRing, PrimeField,
 };
 
@@ -24,10 +24,9 @@ fn parse_system(ring: &PolynomialRing<F32003>, expressions: &[&str]) -> Vec<Poly
 fn assert_f4_matches_buchberger(vars: &[&str], order: MonomialOrder, expressions: &[&str]) {
     let ring = ring(vars, order);
     let polynomials = parse_system(&ring, expressions);
-    let buchberger = groebner_basis(polynomials.clone(), order, true)
-        .expect("Buchberger computation should succeed");
-    let f4 = groebner_basis_f4_mod(polynomials, F32003::modulus(), order)
-        .expect("F4 computation should succeed");
+    let buchberger =
+        groebner_basis(polynomials.clone(), true).expect("Buchberger computation should succeed");
+    let f4 = groebner_basis_f4(polynomials, true).expect("F4 computation should succeed");
 
     assert!(is_groebner_basis(&f4).expect("F4 output should be a Groebner basis"));
     assert_eq!(f4, buchberger);
@@ -66,9 +65,10 @@ fn f4_matches_buchberger_for_cyclic4_grlex() {
 }
 
 #[test]
+#[allow(deprecated)]
 fn f4_rejects_mismatched_runtime_prime() {
     let ring = ring(&["x", "y"], MonomialOrder::Lex);
     let polynomials = parse_system(&ring, &["x^2 - y", "x*y - 1"]);
 
-    assert!(groebner_basis_f4_mod(polynomials, 17, MonomialOrder::Lex).is_err());
+    assert!(groebner::groebner_basis_f4_mod(polynomials, 17, MonomialOrder::Lex).is_err());
 }

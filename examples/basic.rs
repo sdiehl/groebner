@@ -28,7 +28,7 @@ fn main() {
     };
 
     // Compute the Groebner basis
-    match groebner_basis(vec![f, g], order, true) {
+    match groebner_basis(vec![f, g], true) {
         Ok(basis) => {
             println!("Groebner basis:");
             for (i, poly) in basis.iter().enumerate() {

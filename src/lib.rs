@@ -1,86 +1,65 @@
-//! Groebner basis algorithms for multivariate polynomial ideals.
+//! Groebner bases for multivariate polynomial ideals.
 //!
-//! The crate provides two public computation paths:
+//! - [`groebner_basis_f4`]: F4 over any [`F4Field`], with a fast dense modular path for
+//!   [`PrimeField`] and [`Zp`].
+//! - [`groebner_basis`], [`groebner_basis_incremental`], [`groebner_basis_with_strategy`] and
+//!   [`groebner_basis_parallel`]: Buchberger over any [`Field`].
+//! - [`Ideal`]: normal forms, membership, elimination, dimension, radical membership and
+//!   change of order via [`fglm()`].
+//! - [`PolynomialRing`]: parsing and formatting with named variables under any [`MonomialOrder`].
 //!
-//! - [`groebner_basis`] for the existing Buchberger implementation over any [`Field`].
-//! - [`groebner_basis_incremental`] for extending an existing Buchberger basis with new generators.
-//! - [`groebner_basis_parallel`] for Rayon-backed Buchberger batches when the `parallel` feature is enabled.
-//! - [`groebner_basis_f4_mod`] for a sparse F4-style implementation over [`PrimeField`].
-//!
-//! Polynomials can be built from strings using [`PolynomialRing`], where the variable list also
-//! defines the lexicographic variable order. `PolynomialRing` also formats results with variable
-//! names through [`PolynomialRing::format`] and [`PolynomialRing::format_latex`].
-//!
-//! # Buchberger Example
+//! # F4 over a prime field
 //! ```
-//! use groebner::{groebner_basis, is_groebner_basis, MonomialOrder, PolynomialRing};
-//! use num_rational::BigRational;
+//! use groebner::{groebner_basis_f4, is_groebner_basis, MonomialOrder, PolynomialRing, PrimeField};
 //!
-//! let ring = PolynomialRing::<BigRational>::new(["x", "y"], MonomialOrder::Lex)?;
-//! let f1 = ring.parse("x^2 - y")?;
-//! let f2 = ring.parse("x*y - 1")?;
-//! let basis_result = groebner_basis(vec![f1, f2], MonomialOrder::Lex, true);
-//! match basis_result {
-//!     Ok(basis) => {
-//!         assert!(!basis.is_empty());
-//!         match is_groebner_basis(&basis) {
-//!             Ok(true) => {}
-//!             Ok(false) => panic!("Basis is not a Groebner basis!"),
-//!             Err(e) => panic!("Groebner basis check failed: {}", e),
-//!         }
-//!     }
-//!     Err(e) => panic!("Groebner basis computation failed: {}", e),
-//! }
+//! let ring = PolynomialRing::<PrimeField<32003>>::new(["x", "y"], MonomialOrder::GRevLex)?;
+//! let polys = ring.parse_many("x^2 - y; x*y - 1")?;
+//! let basis = groebner_basis_f4(polys, true)?;
+//! assert!(is_groebner_basis(&basis)?);
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 //!
-//! # Parallel Buchberger Example
+//! # Runtime modulus
 //! ```
-//! # #[cfg(feature = "parallel")]
-//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
-//! use groebner::{groebner_basis_parallel, MonomialOrder, PolynomialRing};
+//! use groebner::{groebner_basis_f4, MonomialOrder, PolynomialRing, Zp};
+//!
+//! let ring = PolynomialRing::<Zp>::with_modulus(["x", "y"], MonomialOrder::Lex, 1_000_003)?;
+//! let basis = groebner_basis_f4(ring.parse_many("x^2 - y; x*y - 1")?, true)?;
+//! assert_eq!(basis.len(), 2);
+//! # Ok::<(), Box<dyn std::error::Error>>(())
+//! ```
+//!
+//! # Ideals and change of order
+//! ```
+//! use groebner::{Ideal, MonomialOrder, PolynomialRing};
 //! use num_rational::BigRational;
 //!
-//! let ring = PolynomialRing::<BigRational>::new(["x", "y", "z"], MonomialOrder::GrLex)?;
-//! let f1 = ring.parse("x^2 + y^2 + z^2 - 1")?;
-//! let f2 = ring.parse("x*y - z")?;
-//! let basis = groebner_basis_parallel(vec![f1, f2], ring.order(), true)?;
-//!
-//! assert!(!basis.is_empty());
-//! # Ok::<(), Box<dyn std::error::Error>>(())
-//! # }
-//! # #[cfg(not(feature = "parallel"))]
-//! # fn main() {}
-//! ```
-//!
-//! # F4 Example
-//! ```
-//! use groebner::{groebner_basis_f4_mod, MonomialOrder, PolynomialRing, PrimeField};
-//!
-//! type F32003 = PrimeField<32003>;
-//!
-//! let ring = PolynomialRing::<F32003>::new(["x", "y"], MonomialOrder::Lex)?;
-//! let f1 = ring.parse("x^2 - y")?;
-//! let f2 = ring.parse("x*y - 1")?;
-//! let basis = groebner_basis_f4_mod(vec![f1, f2], F32003::modulus(), ring.order())?;
-//!
-//! assert!(!basis.is_empty());
+//! let ring = PolynomialRing::<BigRational>::new(["x", "y"], MonomialOrder::GRevLex)?;
+//! let ideal = Ideal::new(ring.parse_many("x^2 + y^2 - 1; x - y")?)?;
+//! assert_eq!(ideal.vector_space_dimension(), Some(2));
+//! let lex = ideal.change_order(MonomialOrder::Lex)?;
+//! assert!(lex.contains(&ring.parse("2*y^2 - 1")?)?);
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 
 pub mod f4;
+pub mod fglm;
 pub mod field;
 pub mod finite_field;
 pub mod grebauer_moller;
 pub mod groebner;
+pub mod ideal;
 pub mod monomial;
 pub mod polynomial;
 pub mod ring;
 pub mod sugar;
 
+#[allow(deprecated)]
 pub use f4::groebner_basis_f4_mod;
-pub use field::Field;
-pub use finite_field::{PrimeField, PrimeFieldParseError};
+pub use f4::{groebner_basis_f4, F4Field, SparseRow};
+pub use fglm::{fglm, is_zero_dimensional, standard_monomials};
+pub use field::{Field, ModularField};
+pub use finite_field::{PrimeField, PrimeFieldParseError, Zp};
 pub use grebauer_moller::filter_gm_pairs;
 pub use groebner::{
     groebner_basis, groebner_basis_incremental, groebner_basis_with_strategy, is_groebner_basis,
@@ -88,6 +67,7 @@ pub use groebner::{
 };
 #[cfg(feature = "parallel")]
 pub use groebner::{groebner_basis_parallel, is_groebner_basis_parallel};
+pub use ideal::Ideal;
 pub use monomial::{Monomial, MonomialOrder};
 pub use polynomial::{Polynomial, Term};
-pub use ring::{ParsePolynomialError, PolynomialRing};
+pub use ring::{ParseCoefficient, ParsePolynomialError, PolynomialRing};

@@ -1,6 +1,6 @@
 [package]
 name = "groebner"
-version = "0.2.1"
+version = "0.3.0"
 authors = ["Stephen Diehl"]
 categories = ["science", "mathematics"]
 documentation = "https://docs.rs/groebner"

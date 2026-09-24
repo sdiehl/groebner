@@ -111,8 +111,7 @@ mod tests {
             ), // y^3 - 1/2
         ];
 
-        let basis = groebner_basis(vec![f, g], MonomialOrder::Lex, true)
-            .expect("Groebner computation failed");
+        let basis = groebner_basis(vec![f, g], true).expect("Groebner computation failed");
         assert_eq!(basis, expected);
     }
 
@@ -132,8 +131,7 @@ mod tests {
             MonomialOrder::Lex,
         );
 
-        let basis = groebner_basis(vec![f, g], MonomialOrder::Lex, true)
-            .expect("Groebner computation failed");
+        let basis = groebner_basis(vec![f, g], true).expect("Groebner computation failed");
         assert!(!basis.is_empty());
         assert!(is_groebner_basis(&basis).expect("Groebner basis check failed"));
     }
@@ -154,8 +152,7 @@ mod tests {
             MonomialOrder::Lex,
         );
 
-        let basis = groebner_basis(vec![f, g], MonomialOrder::Lex, true)
-            .expect("Groebner computation failed");
+        let basis = groebner_basis(vec![f, g], true).expect("Groebner computation failed");
         assert!(!basis.is_empty());
         assert!(is_groebner_basis(&basis).expect("Groebner basis check failed"));
         assert_eq!(basis.len(), 2);
@@ -187,8 +184,7 @@ mod tests {
             ), // -x/2 + y^2
         ];
 
-        let basis = groebner_basis(vec![f, g], MonomialOrder::GrLex, true)
-            .expect("Groebner computation failed");
+        let basis = groebner_basis(vec![f, g], true).expect("Groebner computation failed");
         assert_eq!(basis, expected);
     }
 
@@ -231,8 +227,7 @@ mod tests {
             ), // y^3 - z^2
         ];
 
-        let basis = groebner_basis(vec![f, g], MonomialOrder::Lex, true)
-            .expect("Groebner computation failed");
+        let basis = groebner_basis(vec![f, g], true).expect("Groebner computation failed");
         assert_eq!(basis, expected);
     }
 
@@ -275,8 +270,7 @@ mod tests {
             ), // xz - y^2
         ];
 
-        let basis = groebner_basis(vec![f, g], MonomialOrder::GrLex, true)
-            .expect("Groebner computation failed");
+        let basis = groebner_basis(vec![f, g], true).expect("Groebner computation failed");
         assert_eq!(basis, expected);
     }
 
@@ -309,8 +303,7 @@ mod tests {
             ), // y^3 - z
         ];
 
-        let basis = groebner_basis(vec![f, g], MonomialOrder::Lex, true)
-            .expect("Groebner computation failed");
+        let basis = groebner_basis(vec![f, g], true).expect("Groebner computation failed");
         assert_eq!(basis, expected);
     }
 
@@ -348,8 +341,7 @@ mod tests {
             ), // -x + y^2
         ];
 
-        let basis = groebner_basis(vec![f, g], MonomialOrder::GrLex, true)
-            .expect("Groebner computation failed");
+        let basis = groebner_basis(vec![f, g], true).expect("Groebner computation failed");
         assert_eq!(basis, expected);
     }
 
@@ -371,8 +363,7 @@ mod tests {
 
         let expected = vec![f.clone(), g.clone()];
 
-        let basis = groebner_basis(vec![f, g], MonomialOrder::Lex, true)
-            .expect("Groebner computation failed");
+        let basis = groebner_basis(vec![f, g], true).expect("Groebner computation failed");
         assert_eq!(basis, expected);
     }
 
@@ -410,8 +401,7 @@ mod tests {
             ), // -x + z^2
         ];
 
-        let basis = groebner_basis(vec![f, g], MonomialOrder::GrLex, true)
-            .expect("Groebner computation failed");
+        let basis = groebner_basis(vec![f, g], true).expect("Groebner computation failed");
 
         // Check basic properties
         assert!(!basis.is_empty());
@@ -449,7 +439,7 @@ mod tests {
     #[test]
     fn test_variety_intersection() {
         // Test: -y^2 + z, x - y^3
-        // Canonical output: [x - y^3, y^2 - z]
+        // Reduced output: [x - y*z, y^2 - z]
         let f = create_polynomial(
             vec![(-1, 1, vec![0, 2, 0]), (1, 1, vec![0, 0, 1])],
             3,
@@ -464,10 +454,10 @@ mod tests {
 
         let expected = vec![
             create_polynomial(
-                vec![(1, 1, vec![1, 0, 0]), (-1, 1, vec![0, 3, 0])],
+                vec![(1, 1, vec![1, 0, 0]), (-1, 1, vec![0, 1, 1])],
                 3,
                 MonomialOrder::Lex,
-            ), // x - y^3
+            ), // x - y*z
             create_polynomial(
                 vec![(1, 1, vec![0, 2, 0]), (-1, 1, vec![0, 0, 1])],
                 3,
@@ -475,8 +465,7 @@ mod tests {
             ), // y^2 - z
         ];
 
-        let basis = groebner_basis(vec![f, g], MonomialOrder::Lex, true)
-            .expect("Groebner computation failed");
+        let basis = groebner_basis(vec![f, g], true).expect("Groebner computation failed");
         assert_eq!(basis, expected);
     }
 
@@ -519,8 +508,7 @@ mod tests {
             ), // -x + yz
         ];
 
-        let basis = groebner_basis(vec![f, g], MonomialOrder::GrLex, true)
-            .expect("Groebner computation failed");
+        let basis = groebner_basis(vec![f, g], true).expect("Groebner computation failed");
         assert_eq!(basis, expected);
     }
 
@@ -553,8 +541,7 @@ mod tests {
             ), // y - z^2
         ];
 
-        let basis = groebner_basis(vec![f, g], MonomialOrder::Lex, true)
-            .expect("Groebner computation failed");
+        let basis = groebner_basis(vec![f, g], true).expect("Groebner computation failed");
         assert_eq!(basis, expected);
     }
 
@@ -597,8 +584,7 @@ mod tests {
             ), // z^2 - y
         ];
 
-        let basis = groebner_basis(vec![f, g], MonomialOrder::GrLex, true)
-            .expect("Groebner computation failed");
+        let basis = groebner_basis(vec![f, g], true).expect("Groebner computation failed");
         assert_eq!(basis, expected);
     }
 
@@ -618,8 +604,7 @@ mod tests {
             MonomialOrder::Lex,
         );
 
-        let basis = groebner_basis(vec![f, g], MonomialOrder::Lex, true)
-            .expect("Groebner computation failed");
+        let basis = groebner_basis(vec![f, g], true).expect("Groebner computation failed");
         assert!(!basis.is_empty());
         assert!(is_groebner_basis(&basis).expect("Groebner basis check failed"));
     }
@@ -657,8 +642,7 @@ mod tests {
 
         // Note: The actual Groebner basis computation may produce different but equivalent results
         // Let's verify it's a valid Groebner basis with the expected structure
-        let basis = groebner_basis(vec![f1, f2, f3], MonomialOrder::Lex, true)
-            .expect("Groebner computation failed");
+        let basis = groebner_basis(vec![f1, f2, f3], true).expect("Groebner computation failed");
 
         // Check basic properties of the computed Groebner basis
         assert!(!basis.is_empty());
@@ -725,8 +709,7 @@ mod tests {
             MonomialOrder::GrLex,
         );
 
-        let basis = groebner_basis(vec![f1, f2, f3], MonomialOrder::GrLex, true)
-            .expect("Groebner computation failed");
+        let basis = groebner_basis(vec![f1, f2, f3], true).expect("Groebner computation failed");
         assert!(!basis.is_empty());
         assert!(is_groebner_basis(&basis).expect("Groebner basis check failed"));
     }
@@ -773,8 +756,8 @@ mod tests {
             MonomialOrder::Lex,
         );
 
-        let basis = groebner_basis(vec![f1, f2, f3, f4], MonomialOrder::Lex, true)
-            .expect("Groebner computation failed");
+        let basis =
+            groebner_basis(vec![f1, f2, f3, f4], true).expect("Groebner computation failed");
 
         // Check basic properties of the computed Groebner basis
         assert!(!basis.is_empty());
@@ -845,8 +828,8 @@ mod tests {
             MonomialOrder::GrLex,
         );
 
-        let basis = groebner_basis(vec![f1, f2, f3, f4], MonomialOrder::GrLex, true)
-            .expect("Groebner computation failed");
+        let basis =
+            groebner_basis(vec![f1, f2, f3, f4], true).expect("Groebner computation failed");
         assert!(!basis.is_empty());
         assert!(is_groebner_basis(&basis).expect("Groebner basis check failed"));
     }
@@ -866,8 +849,7 @@ mod tests {
             MonomialOrder::Lex,
         );
 
-        let basis = groebner_basis(vec![f1, f2], MonomialOrder::Lex, true)
-            .expect("Groebner computation failed");
+        let basis = groebner_basis(vec![f1, f2], true).expect("Groebner computation failed");
         assert!(!basis.is_empty());
         assert!(is_groebner_basis(&basis).expect("Groebner basis check failed"));
     }
@@ -887,10 +869,9 @@ mod tests {
             MonomialOrder::Lex,
         );
 
-        let basis_lex = groebner_basis(vec![f.clone(), g.clone()], MonomialOrder::Lex, true)
-            .expect("Groebner computation failed");
-        let basis_grlex = groebner_basis(vec![f, g], MonomialOrder::GrLex, true)
-            .expect("Groebner computation failed");
+        let basis_lex =
+            groebner_basis(vec![f.clone(), g.clone()], true).expect("Groebner computation failed");
+        let basis_grlex = groebner_basis(vec![f, g], true).expect("Groebner computation failed");
 
         assert!(is_groebner_basis(&basis_lex).expect("Groebner basis check failed"));
         assert!(is_groebner_basis(&basis_grlex).expect("Groebner basis check failed"));
@@ -943,7 +924,7 @@ mod tests {
 
     #[test]
     fn test_empty_and_single_polynomial() {
-        let empty_basis = groebner_basis::<BigRational>(vec![], MonomialOrder::Lex, true);
+        let empty_basis = groebner_basis::<BigRational>(vec![], true);
         assert!(matches!(
             empty_basis,
             Err(groebner::GroebnerError::EmptyInput)
@@ -951,8 +932,8 @@ mod tests {
 
         let single = create_polynomial(vec![(1, 1, vec![1, 0])], 2, MonomialOrder::Lex);
 
-        let single_basis = groebner_basis(vec![single.clone()], MonomialOrder::Lex, true)
-            .expect("Groebner computation failed");
+        let single_basis =
+            groebner_basis(vec![single.clone()], true).expect("Groebner computation failed");
         assert_eq!(single_basis.len(), 1);
         assert!(is_groebner_basis(&single_basis).expect("Groebner basis check failed"));
     }
@@ -962,8 +943,8 @@ mod tests {
         let zero = Polynomial::zero(2, MonomialOrder::Lex);
         let nonzero = create_polynomial(vec![(1, 1, vec![1, 0])], 2, MonomialOrder::Lex);
 
-        let basis = groebner_basis(vec![zero, nonzero.clone()], MonomialOrder::Lex, true)
-            .expect("Groebner computation failed");
+        let basis =
+            groebner_basis(vec![zero, nonzero.clone()], true).expect("Groebner computation failed");
         assert_eq!(basis.len(), 1);
         assert!(is_groebner_basis(&basis).expect("Groebner basis check failed"));
     }
@@ -973,8 +954,8 @@ mod tests {
         let constant = create_polynomial(vec![(1, 1, vec![0, 0])], 2, MonomialOrder::Lex);
         let other = create_polynomial(vec![(1, 1, vec![1, 0])], 2, MonomialOrder::Lex);
 
-        let basis = groebner_basis(vec![constant, other], MonomialOrder::Lex, true)
-            .expect("Groebner computation failed");
+        let basis =
+            groebner_basis(vec![constant, other], true).expect("Groebner computation failed");
         // If the ideal contains a nonzero constant, the basis should be {1}
         assert!(!basis.is_empty());
         assert!(is_groebner_basis(&basis).expect("Groebner basis check failed"));
@@ -995,8 +976,7 @@ mod tests {
             MonomialOrder::Lex,
         );
 
-        let basis = groebner_basis(vec![f1, f2], MonomialOrder::Lex, true)
-            .expect("Groebner computation failed");
+        let basis = groebner_basis(vec![f1, f2], true).expect("Groebner computation failed");
         assert!(!basis.is_empty());
         assert!(is_groebner_basis(&basis).expect("Groebner basis check failed"));
     }
@@ -1016,8 +996,7 @@ mod tests {
             MonomialOrder::Lex,
         );
 
-        let basis = groebner_basis(vec![f1, f2], MonomialOrder::Lex, true)
-            .expect("Groebner computation failed");
+        let basis = groebner_basis(vec![f1, f2], true).expect("Groebner computation failed");
         assert!(!basis.is_empty());
         assert!(is_groebner_basis(&basis).expect("Groebner basis check failed"));
     }
@@ -1037,8 +1016,7 @@ mod tests {
             MonomialOrder::Lex,
         );
 
-        let basis = groebner_basis(vec![f1, f2], MonomialOrder::Lex, true)
-            .expect("Groebner computation failed");
+        let basis = groebner_basis(vec![f1, f2], true).expect("Groebner computation failed");
         assert!(!basis.is_empty());
         assert!(is_groebner_basis(&basis).expect("Groebner basis check failed"));
     }

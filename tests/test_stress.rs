@@ -85,7 +85,7 @@ fn stress_small() {
         .map(|i| make_poly(nvars, 2, nterms, MonomialOrder::Lex, i))
         .collect();
     let start = Instant::now();
-    let basis = groebner_basis(polys, MonomialOrder::Lex, true).expect("Groebner failed");
+    let basis = groebner_basis(polys, true).expect("Groebner failed");
     let elapsed = start.elapsed();
     println!(
         "[stress_small] Time: {}.{:03} seconds, basis size: {}",
@@ -104,7 +104,7 @@ fn stress_medium() {
         .map(|i| make_poly(nvars, 3, nterms, MonomialOrder::GrLex, i))
         .collect();
     let start = Instant::now();
-    let basis = groebner_basis(polys, MonomialOrder::GrLex, true).expect("Groebner failed");
+    let basis = groebner_basis(polys, true).expect("Groebner failed");
     let elapsed = start.elapsed();
     println!(
         "[stress_medium] Time: {}.{:03} seconds, basis size: {}",
@@ -123,7 +123,7 @@ fn stress_large() {
         .map(|i| make_poly(nvars, 3, nterms, MonomialOrder::Lex, i))
         .collect();
     let start = Instant::now();
-    let basis = groebner_basis(polys, MonomialOrder::Lex, true).expect("Groebner failed");
+    let basis = groebner_basis(polys, true).expect("Groebner failed");
     let elapsed = start.elapsed();
     println!(
         "[stress_large] Time: {}.{:03} seconds, basis size: {}",
@@ -142,7 +142,7 @@ fn stress_xlarge() {
         .map(|i| make_poly(nvars, 5, nterms, MonomialOrder::GrLex, i))
         .collect();
     let start = Instant::now();
-    let basis = groebner_basis(polys, MonomialOrder::GrLex, true).expect("Groebner failed");
+    let basis = groebner_basis(polys, true).expect("Groebner failed");
     let elapsed = start.elapsed();
     println!(
         "[stress_xlarge] Time: {}.{:03} seconds, basis size: {}",

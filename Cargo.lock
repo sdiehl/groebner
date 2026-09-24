@@ -222,7 +222,7 @@ dependencies = [
 
 [[package]]
 name = "groebner"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "criterion",
  "num-bigint 0.5.1",

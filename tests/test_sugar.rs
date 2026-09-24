@@ -10,24 +10,15 @@ fn test_groebner_basis_sugar_strategy() {
     let f1 = ring.parse("x^2 - y").expect("f1 should parse");
     let f2 = ring.parse("x*y - 1").expect("f2 should parse");
     let polynomials = vec![f1, f2];
-    let result = groebner_basis_with_strategy(
-        polynomials.clone(),
-        MonomialOrder::Lex,
-        true,
-        &SelectionStrategy::Sugar,
-    );
+    let result = groebner_basis_with_strategy(polynomials.clone(), true, &SelectionStrategy::Sugar);
     assert!(
         result.is_ok(),
         "Sugar strategy Groebner basis computation failed"
     );
     let sugar_basis = result.expect("Sugar strategy Groebner basis computation should succeed");
     // Also check the default strategy for comparison
-    let default_result = groebner_basis_with_strategy(
-        polynomials,
-        MonomialOrder::Lex,
-        true,
-        &SelectionStrategy::Degree,
-    );
+    let default_result =
+        groebner_basis_with_strategy(polynomials, true, &SelectionStrategy::Degree);
     assert!(
         default_result.is_ok(),
         "Default strategy Groebner basis computation failed"
