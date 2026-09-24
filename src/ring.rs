@@ -23,6 +23,7 @@ use crate::field::Field;
 use crate::finite_field::{PrimeField, Zp};
 use crate::monomial::{Monomial, MonomialOrder};
 use crate::polynomial::{Polynomial, Term};
+use crate::rational_function::RationalFunction;
 use num_rational::BigRational;
 use std::collections::HashMap;
 use std::fmt;
@@ -89,6 +90,7 @@ pub struct PolynomialRing<F> {
     variable_indices: HashMap<String, usize>,
     order: MonomialOrder,
     modulus: Option<u64>,
+    parameter: Option<String>,
     _field: PhantomData<F>,
 }
 
@@ -98,7 +100,7 @@ impl<F> PolynomialRing<F> {
         I: IntoIterator<Item = S>,
         S: Into<String>,
     {
-        Self::build(variables, order, None)
+        Self::build(variables, order, None, None)
     }
 
     /// A ring over a runtime prime field, needed to parse [`Zp`] coefficients.
@@ -111,13 +113,27 @@ impl<F> PolynomialRing<F> {
         I: IntoIterator<Item = S>,
         S: Into<String>,
     {
-        Self::build(variables, order, Some(modulus))
+        Self::build(variables, order, Some(modulus), None)
+    }
+
+    /// A ring over [`RationalFunction`] whose coefficients may mention `parameter`.
+    pub fn with_parameter<I, S>(
+        variables: I,
+        order: MonomialOrder,
+        parameter: impl Into<String>,
+    ) -> Result<Self, ParsePolynomialError>
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        Self::build(variables, order, None, Some(parameter.into()))
     }
 
     fn build<I, S>(
         variables: I,
         order: MonomialOrder,
         modulus: Option<u64>,
+        parameter: Option<String>,
     ) -> Result<Self, ParsePolynomialError>
     where
         I: IntoIterator<Item = S>,
@@ -134,12 +150,19 @@ impl<F> PolynomialRing<F> {
                 return Err(ParsePolynomialError::DuplicateVariable(variable.clone()));
             }
         }
+        if let Some(name) = parameter
+            .as_ref()
+            .filter(|p| variable_indices.contains_key(*p))
+        {
+            return Err(ParsePolynomialError::DuplicateVariable(name.clone()));
+        }
 
         Ok(Self {
             variables,
             variable_indices,
             order,
             modulus,
+            parameter,
             _field: PhantomData,
         })
     }
@@ -156,6 +179,14 @@ impl<F> PolynomialRing<F> {
         self.modulus
     }
 
+    pub fn parameter(&self) -> Option<&str> {
+        self.parameter.as_deref()
+    }
+
+    fn parameter_name(&self) -> &str {
+        self.parameter.as_deref().unwrap_or("a")
+    }
+
     /// The same ring under a different monomial order.
     pub fn with_order(&self, order: MonomialOrder) -> Self {
         Self {
@@ -163,6 +194,7 @@ impl<F> PolynomialRing<F> {
             variable_indices: self.variable_indices.clone(),
             order,
             modulus: self.modulus,
+            parameter: self.parameter.clone(),
             _field: PhantomData,
         }
     }
@@ -202,7 +234,7 @@ impl<F: ParseCoefficient> PolynomialRing<F> {
 
         let mut output = String::new();
         for term in &polynomial.terms {
-            let coeff = term.coefficient.to_string();
+            let coeff = term.coefficient.format_coefficient(self.parameter_name());
             let is_negative = coeff.starts_with('-');
             let abs_coeff = if is_negative { &coeff[1..] } else { &coeff };
             let monomial = self.format_monomial(&term.monomial)?;
@@ -244,10 +276,12 @@ impl<F: ParseCoefficient> PolynomialRing<F> {
 
         let mut output = String::new();
         for term in &polynomial.terms {
-            let coeff = term.coefficient.to_string();
+            let coeff = term
+                .coefficient
+                .format_coefficient_latex(&latex_variable(self.parameter_name()));
             let is_negative = coeff.starts_with('-');
-            let abs_coeff = if is_negative { &coeff[1..] } else { &coeff };
-            let coeff_latex = latex_coefficient(abs_coeff);
+            let coeff_latex = if is_negative { &coeff[1..] } else { &coeff }.to_string();
+            let abs_coeff = coeff_latex.as_str();
             let monomial = self.format_monomial_latex(&term.monomial)?;
             let term_body = if monomial == "1" {
                 coeff_latex
@@ -562,6 +596,15 @@ impl<'a, F: ParseCoefficient> ParserFor<'a, F> {
                     saw_factor = true;
                     require_factor = false;
                 }
+                Token::Ident(variable) if self.ring.parameter.as_ref() == Some(&variable) => {
+                    self.index += 1;
+                    let exponent = self.parse_optional_exponent()?;
+                    let factor = F::parameter_power(exponent)
+                        .ok_or(ParsePolynomialError::UnknownVariable(variable))?;
+                    coefficient = coefficient.multiply(&factor);
+                    saw_factor = true;
+                    require_factor = false;
+                }
                 Token::Ident(variable) => {
                     self.index += 1;
                     let index = self
@@ -639,8 +682,26 @@ impl<'a, F: ParseCoefficient> ParserFor<'a, F> {
     }
 }
 
-/// Coefficient parsing for [`PolynomialRing::parse`]; implement for custom fields.
+/// Coefficient parsing and printing for [`PolynomialRing`]; implement for custom fields.
 pub trait ParseCoefficient: Field {
+    /// The ring parameter raised to `exponent`, for fields with a parameter.
+    fn parameter_power(_exponent: u32) -> Option<Self> {
+        None
+    }
+
+    /// Text for this coefficient as a factor of a term, with the parameter named `parameter`.
+    fn format_coefficient(&self, _parameter: &str) -> String {
+        self.to_string()
+    }
+
+    fn format_coefficient_latex(&self, parameter: &str) -> String {
+        let text = self.format_coefficient(parameter);
+        match text.strip_prefix('-') {
+            Some(rest) => format!("-{}", latex_coefficient(rest)),
+            None => latex_coefficient(&text),
+        }
+    }
+
     fn minus_one() -> Self {
         Self::one().negate()
     }
@@ -714,6 +775,28 @@ impl ParseCoefficient for Zp {
                 .map_err(|_| ParsePolynomialError::InvalidNumber(digits.to_string()))
         };
         modular_quotient(parse(numerator)?, denominator.map(parse))
+    }
+}
+
+impl ParseCoefficient for RationalFunction {
+    fn parameter_power(exponent: u32) -> Option<Self> {
+        Some(Self::parameter_power(exponent))
+    }
+
+    fn format_coefficient(&self, parameter: &str) -> String {
+        self.render(parameter, true)
+    }
+
+    fn format_coefficient_latex(&self, parameter: &str) -> String {
+        self.render_latex(parameter)
+    }
+
+    fn parse_coefficient(
+        numerator: &str,
+        denominator: Option<&str>,
+        modulus: Option<u64>,
+    ) -> Result<Self, ParsePolynomialError> {
+        BigRational::parse_coefficient(numerator, denominator, modulus).map(Self::constant)
     }
 }
 

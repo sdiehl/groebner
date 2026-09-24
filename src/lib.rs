@@ -7,6 +7,7 @@
 //! - [`Ideal`]: normal forms, membership, elimination, dimension, radical membership and
 //!   change of order via [`fglm()`].
 //! - [`PolynomialRing`]: parsing and formatting with named variables under any [`MonomialOrder`].
+//! - [`RationalFunction`]: coefficients in Q(a) for systems with one symbolic parameter.
 //!
 //! # F4 over a prime field
 //! ```
@@ -51,6 +52,7 @@ pub mod groebner;
 pub mod ideal;
 pub mod monomial;
 pub mod polynomial;
+pub mod rational_function;
 pub mod ring;
 pub mod sugar;
 
@@ -70,4 +72,5 @@ pub use groebner::{groebner_basis_parallel, is_groebner_basis_parallel};
 pub use ideal::Ideal;
 pub use monomial::{Monomial, MonomialOrder};
 pub use polynomial::{Polynomial, Term};
+pub use rational_function::{specialize, RationalFunction};
 pub use ring::{ParseCoefficient, ParsePolynomialError, PolynomialRing};

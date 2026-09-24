@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Add `RationalFunction` for coefficients in Q(a) with one parameter.
+- Add `PolynomialRing::with_parameter` for parsing and printing parameters.
+- Add `specialize` to substitute a value for the parameter.
+- Add `ParseCoefficient` hooks for parameter parsing and coefficient printing.
+
 ## 0.3.0
 
 - Add generic `groebner_basis_f4` over any `F4Field`, including `BigRational`.
