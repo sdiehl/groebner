@@ -30,7 +30,6 @@ name = "groebner"
 path = "src/lib.rs"
 
 [dependencies]
-num-bigint = "0.5"
 num-rational = "0.4"
 num-traits = "0.2"
 rayon = { version = "1.10", optional = true }
