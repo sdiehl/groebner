@@ -58,3 +58,18 @@ fn f4_with_64_bit_modulus_matches_buchberger() {
     assert_eq!(f4, buchberger);
     assert!(is_groebner_basis(&f4).unwrap());
 }
+
+#[test]
+fn f4_with_64_bit_modulus_large_residues() {
+    let ring =
+        PolynomialRing::<Zp>::with_modulus(["x", "y", "z"], MonomialOrder::GRevLex, P64).unwrap();
+    let polys = ring
+        .parse_many(
+            "x^2 - 1/3*y*z - 1/7; y^2 - 1/5*x*z - 1/11; z^2 - 1/13*x*y - 1/17; x*y*z - 1/19",
+        )
+        .unwrap();
+    let f4 = groebner_basis_f4(polys.clone(), true).unwrap();
+    let buchberger = groebner_basis(polys, true).unwrap();
+    assert_eq!(f4, buchberger);
+    assert!(is_groebner_basis(&f4).unwrap());
+}

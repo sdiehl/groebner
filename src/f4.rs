@@ -481,6 +481,10 @@ fn mul_mod(a: u64, b: u64, p: u64) -> u64 {
     ((u128::from(a) * u128::from(b)) % u128::from(p)) as u64
 }
 
+fn add_mod(a: u64, b: u64, p: u64) -> u64 {
+    if a >= p - b { a - (p - b) } else { a + b }
+}
+
 fn inv_mod(a: u64, p: u64) -> u64 {
     let (mut t, mut new_t) = (0i128, 1i128);
     let (mut r, mut new_r) = (i128::from(p), i128::from(a));
@@ -538,8 +542,7 @@ fn reduce_dense_u64(
                 }
             } else {
                 for (pc, pv) in piv.columns.iter().zip(&piv.coefficients).skip(1) {
-                    let acc = buf[*pc] + mul_mod(c, *pv, p);
-                    buf[*pc] = if acc >= p { acc - p } else { acc };
+                    buf[*pc] = add_mod(buf[*pc], mul_mod(c, *pv, p), p);
                 }
             }
         }

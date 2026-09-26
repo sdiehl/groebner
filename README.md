@@ -13,8 +13,7 @@ Examples:
 cargo add groebner
 ```
 
-Parse polynomials with named variables under a monomial order and compute a reduced Groebner
-basis with F4 (over `PrimeField<P>`, `Zp` or `BigRational`):
+Parse polynomials with named variables under a monomial order and compute a reduced Groebner basis with F4 (over `PrimeField<P>`, `Zp` or `BigRational`):
 
 ```rust
 use groebner::{groebner_basis_f4, MonomialOrder, PolynomialRing, PrimeField};
@@ -27,8 +26,7 @@ for p in &basis {
 }
 ```
 
-Buchberger over any `Field` is available as `groebner_basis` (and `groebner_basis_parallel`
-with the default `parallel` feature). Runtime primes up to 64 bits use `Zp`:
+Buchberger over any `Field` is available as `groebner_basis` (and `groebner_basis_parallel` with the default `parallel` feature). Runtime primes up to 64 bits use `Zp`:
 
 ```rust
 use groebner::{groebner_basis_f4, MonomialOrder, PolynomialRing, Zp};
@@ -37,10 +35,7 @@ let ring = PolynomialRing::<Zp>::with_modulus(["x", "y"], MonomialOrder::Lex, 1_
 let basis = groebner_basis_f4(ring.parse_many("x^2 - y; x*y - 1")?, true)?;
 ```
 
-`Ideal` wraps a reduced basis and answers the usual questions: membership and normal forms,
-elimination ideals, zero-dimensionality, the standard monomial basis and its dimension,
-radical membership, multiplication matrices, and change of order (FGLM for zero-dimensional
-ideals):
+`Ideal` wraps a reduced basis and answers the usual questions: membership and normal forms, elimination ideals, zero-dimensionality, the standard monomial basis and its dimension, radical membership, multiplication matrices, and change of order (FGLM for zero-dimensional ideals):
 
 ```rust
 use groebner::{Ideal, MonomialOrder, PolynomialRing};
@@ -53,9 +48,7 @@ let lex = ideal.change_order(MonomialOrder::Lex)?;
 assert!(lex.contains(&ring.parse("y^6 + y^2 - 1")?)?);
 ```
 
-`Ideal::lift` returns cofactors `h` with `f = sum h[k] * generators[k]` for members (as in
-Singular's `lift`), so an external checker can confirm membership with `verify_lift`, which uses
-only ring addition and multiplication:
+`Ideal::lift` returns cofactors `h` with `f = sum h[k] * generators[k]` for members (as in Singular's `lift`), so an external checker can confirm membership with `verify_lift`, which uses only ring addition and multiplication:
 
 ```rust
 use groebner::{Ideal, MonomialOrder, PolynomialRing, verify_lift};
@@ -68,11 +61,9 @@ let h = ideal.lift(&f)?.ok_or("not a member")?;
 assert!(verify_lift(ideal.generators(), &h, &f));
 ```
 
-Monomial orders: `Lex`, `GrLex`, `GRevLex`, `MonomialOrder::weighted(weights, tie_break)`,
-and product orders via `MonomialOrder::block` or `MonomialOrder::elimination(k, rest)`.
+Monomial orders: `Lex`, `GrLex`, `GRevLex`, `MonomialOrder::weighted(weights, tie_break)`, and product orders via `MonomialOrder::block` or `MonomialOrder::elimination(k, rest)`.
 
-Systems with one symbolic parameter work over `RationalFunction`, the field Q(a). The result is
-the basis for a generic value of the parameter, and `specialize` substitutes a number:
+Systems with one symbolic parameter work over `RationalFunction`, the field Q(a). The result is the basis for a generic value of the parameter, and `specialize` substitutes a number:
 
 ```rust
 use groebner::{groebner_basis_f4, MonomialOrder, PolynomialRing, RationalFunction};
