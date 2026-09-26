@@ -6,7 +6,9 @@
 //! ```text
 //! cargo run --release --example corpus -- [--filter katsura] [--field zp,qq,gf32003]
 //!     [--algo f4,buchberger] [--timeout 60] [--jobs 1] [--out results.tsv] [--dir tests/corpus]
+//!     [--manifest tests/corpus/ci.txt] [--strict]
 //! ```
+//! `--strict` treats timeouts as failures. Manifests list exact `category/system` names.
 
 #[path = "../tests/common/corpus.rs"]
 mod corpus;
@@ -30,6 +32,8 @@ struct Options {
     timeout: Duration,
     jobs: usize,
     out: Option<PathBuf>,
+    manifest: Option<PathBuf>,
+    strict: bool,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -42,6 +46,10 @@ enum Status {
 }
 
 impl Status {
+    fn is_failure(self, strict: bool) -> bool {
+        self != Self::Ok && (strict || self != Self::Timeout)
+    }
+
     fn label(self) -> &'static str {
         match self {
             Self::Ok => "ok",
@@ -87,9 +95,15 @@ fn parse_options(args: &[String]) -> Result<Options, String> {
         timeout: Duration::from_secs(60),
         jobs: 1,
         out: None,
+        manifest: None,
+        strict: false,
     };
     let mut iter = args.iter();
     while let Some(flag) = iter.next() {
+        if flag == "--strict" {
+            options.strict = true;
+            continue;
+        }
         let value = iter.next().ok_or_else(|| format!("{flag} needs a value"))?;
         match flag.as_str() {
             "--dir" => options.dir = PathBuf::from(value),
@@ -112,6 +126,7 @@ fn parse_options(args: &[String]) -> Result<Options, String> {
             }
             "--jobs" => options.jobs = value.parse().map_err(|_| "bad --jobs".to_string())?,
             "--out" => options.out = Some(PathBuf::from(value)),
+            "--manifest" => options.manifest = Some(PathBuf::from(value)),
             _ => return Err(format!("unknown flag {flag}")),
         }
     }
@@ -150,7 +165,17 @@ fn child(args: &[String]) -> ExitCode {
 }
 
 fn parent(options: &Options) -> ExitCode {
-    let systems: Vec<System> = corpus::load_dir(&options.dir)
+    let loaded = match &options.manifest {
+        Some(path) => match corpus::load_manifest(&options.dir, path) {
+            Ok(systems) => systems,
+            Err(error) => {
+                eprintln!("{error}");
+                return ExitCode::from(2);
+            }
+        },
+        None => corpus::load_dir(&options.dir),
+    };
+    let systems: Vec<System> = loaded
         .into_iter()
         .filter(|s| {
             options.filters.is_empty()
@@ -310,7 +335,7 @@ fn summarize(outcomes: &[Outcome], elapsed: Duration, options: &Options) -> Exit
     );
     let mut failures: Vec<&Outcome> = outcomes
         .iter()
-        .filter(|o| !matches!(o.status, Status::Ok | Status::Timeout))
+        .filter(|o| o.status.is_failure(options.strict))
         .collect();
     failures.sort_by(|a, b| a.name.cmp(&b.name));
     for o in &failures {
@@ -343,11 +368,45 @@ fn summarize(outcomes: &[Outcome], elapsed: Duration, options: &Options) -> Exit
         }
         if let Err(e) = fs::write(path, tsv) {
             eprintln!("could not write {}: {e}", path.display());
+            return ExitCode::FAILURE;
         }
     }
     if failures.is_empty() {
         ExitCode::SUCCESS
     } else {
         ExitCode::FAILURE
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn strict_manifest_options_can_be_combined_with_fields() {
+        let args = [
+            "--strict",
+            "--manifest",
+            "tests/corpus/ci.txt",
+            "--field",
+            "zp,qq",
+        ]
+        .map(String::from);
+        let options = parse_options(&args).unwrap();
+        assert!(options.strict);
+        assert_eq!(options.manifest, Some(PathBuf::from("tests/corpus/ci.txt")));
+        assert_eq!(options.fields.len(), 2);
+        assert!(Status::Timeout.is_failure(options.strict));
+        assert!(!Status::Ok.is_failure(options.strict));
+    }
+
+    #[test]
+    fn exploratory_runs_still_allow_timeouts_but_not_bad_results() {
+        let options = parse_options(&[]).unwrap();
+        assert!(!Status::Timeout.is_failure(options.strict));
+        for status in [Status::Mismatch, Status::Error, Status::Crash] {
+            assert!(status.is_failure(options.strict));
+        }
+        assert!(parse_options(&["--manifest".into()]).is_err());
     }
 }

@@ -2,26 +2,73 @@ name: Rust
 
 on:
   push:
-    branches: [ "main" ]
   pull_request:
-    branches: [ "main" ]
+
+permissions:
+  contents: read
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
   build:
-
     runs-on: ubuntu-latest
-    timeout-minutes: 2
-
+    timeout-minutes: 10
     steps:
-    - uses: actions/checkout@v4
-    - name: Build
-      run: cargo build --verbose
-    - name: Run tests
-      run: cargo test --verbose
-    - name: Run doc tests
-      run: cargo test --doc --verbose
-    - name: Run example
-      run: cargo run --example basic
+      - uses: actions/checkout@v4
+      - name: Build
+        run: cargo build --locked --verbose
+      - name: Run tests
+        run: cargo test --locked --verbose
+      - name: Test corpus runner
+        run: cargo test --locked --example corpus
+      - name: Run doc tests
+        run: cargo test --locked --doc --verbose
+      - name: Run example
+        run: cargo run --locked --example basic
+
+  corpus:
+    name: Corpus (${{ matrix.mode }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - mode: parallel
+            cargo_args: ""
+          - mode: serial
+            cargo_args: "--no-default-features"
+    env:
+      RAYON_NUM_THREADS: 2
+    steps:
+      - uses: actions/checkout@v4
+      - name: Cache corpus build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-corpus-${{ matrix.mode }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}-${{ hashFiles('src/**/*.rs', 'examples/**/*.rs', 'tests/**/*.rs') }}
+          restore-keys: |
+            ${{ runner.os }}-corpus-${{ matrix.mode }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}-
+      - name: Build corpus runner
+        run: cargo build --locked --release --example corpus ${{ matrix.cargo_args }}
+      - name: Check 256 corpus systems
+        run: >-
+          target/release/examples/corpus
+          --manifest tests/corpus/ci.txt
+          --field zp,gf32003,qq
+          --algo f4
+          --jobs 1
+          --timeout 30
+          --strict
+          --out corpus-${{ matrix.mode }}.tsv
+      - name: Upload corpus results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: corpus-${{ matrix.mode }}
+          path: corpus-${{ matrix.mode }}.tsv
+          retention-days: 14

@@ -1,0 +1,17 @@
+# Small cases for ordinary cargo test, including Buchberger and rational F4.
+biology/lv
+chemistry/conform1
+classic/caprasse
+classic/cyclic3
+classic/cyclic-4
+classic/cyclic-5
+classic/eco5
+classic/katsura-3
+classic/katsura-4
+classic/noon3
+edge-cases/bug-2nd-prime-bad
+edge-cases/bug-empty-tracer
+edge-cases/multy-qq
+edge-cases/one-qq
+geometry/heron
+literature/raksanyi

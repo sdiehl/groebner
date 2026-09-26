@@ -221,7 +221,8 @@ pub(crate) fn learn(
 }
 
 impl F4Trace {
-    /// A missing pivot or a changed row space invalidates the trace; the caller runs full F4.
+    /// Replay only independent rows. The caller must validate the reconstructed basis
+    /// with a full run independent of this trace before accepting it.
     pub(crate) fn replay(&self, polynomials: Vec<Polynomial<Zp>>) -> Option<Vec<Polynomial<Zp>>> {
         let mut basis = prepare_input(polynomials).ok()?;
         if basis
@@ -233,28 +234,13 @@ impl F4Trace {
         }
         let (nvars, order) = (basis[0].nvars, basis[0].order.clone());
         for round in &self.rounds {
-            let matrix = round.plan.execute(&basis)?;
-            let live: Vec<_> = round.live.iter().map(|&i| matrix.rows[i].clone()).collect();
-            let rows = Zp::echelonize(&matrix.pivots, &live, round.plan.columns.len());
-            // Zero rows never enter the new-row echelonization. Check their dependencies
-            // against the completed pivots so unlucky learning primes cannot hide a relation.
-            let mut used = vec![false; matrix.rows.len()];
-            for &i in &round.live {
-                used[i] = true;
+            if round.live.is_empty() {
+                continue;
             }
-            let skipped: Vec<_> = matrix
-                .rows
-                .iter()
-                .zip(used)
-                .filter_map(|(r, used)| (!used).then_some(r.clone()))
-                .collect();
-            if !skipped.is_empty() {
-                let mut pivots = matrix.pivots;
-                pivots.extend(rows.iter().cloned());
-                if !Zp::echelonize(&pivots, &skipped, round.plan.columns.len()).is_empty() {
-                    return None;
-                }
-            }
+            let matrix = round
+                .plan
+                .execute_rows(&basis, round.live.iter().copied())?;
+            let rows = Zp::echelonize(&matrix.pivots, &matrix.rows, round.plan.columns.len());
             let mut polys: Vec<_> = rows
                 .iter()
                 .map(|r| decode(r, &round.plan.columns, nvars, &order))
@@ -330,6 +316,14 @@ struct MatrixPlan {
 }
 impl MatrixPlan {
     fn execute<F: Field>(&self, basis: &[Polynomial<F>]) -> Option<Matrix<F>> {
+        self.execute_rows(basis, 0..self.rows.len())
+    }
+
+    fn execute_rows<F: Field>(
+        &self,
+        basis: &[Polynomial<F>],
+        rows: impl Iterator<Item = usize>,
+    ) -> Option<Matrix<F>> {
         let encode = |row: &PlannedRow| {
             let p = basis.get(row.basis)?;
             let mut coefficients = Vec::with_capacity(p.terms.len());
@@ -354,7 +348,7 @@ impl MatrixPlan {
         };
         Some(Matrix {
             pivots: self.pivots.iter().map(encode).collect::<Option<_>>()?,
-            rows: self.rows.iter().map(encode).collect::<Option<_>>()?,
+            rows: rows.map(|i| encode(&self.rows[i])).collect::<Option<_>>()?,
         })
     }
 }
@@ -835,7 +829,7 @@ mod trace_tests {
         );
     }
     #[test]
-    fn unlucky_learning_prime_cannot_hide_a_zero_row() {
+    fn omitted_zero_rows_require_independent_validation() {
         let system = "x + y; x - y";
         let (_, trace) = learn(input(2, system)).expect("learn");
         assert!(
@@ -844,7 +838,14 @@ mod trace_tests {
                 .iter()
                 .any(|r| r.live.len() < r.plan.rows.len())
         );
-        assert!(trace.replay(input(3, system)).is_none());
+        let replay = trace
+            .replay(input(3, system))
+            .expect("structurally valid trace");
+        let full = groebner_basis_f4_direct(input(3, system), true).expect("full");
+        assert_ne!(
+            replay, full,
+            "independent validation must reject this trace"
+        );
     }
     #[test]
     fn replay_rejects_a_missing_pivot() {

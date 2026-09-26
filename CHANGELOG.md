@@ -1,19 +1,24 @@
 # Changelog
 
-## 0.4.0 (unreleased)
+## 0.4.0 (2026-09-27)
 
 - Rebase fields, monomials, orders, and sparse polynomials on `polycore`.
 - Use parallel multi-modular F4 automatically over `BigRational`, with leading-term
-  voting, support alignment, bounded CRT retries, and a fresh full modular check.
+  voting, support alignment, persistent CRT with separate recovery, parallel
+  coefficient reconstruction, and a fresh full modular check. Validate candidates
+  individually instead of computing a batch.
 - Add `groebner_basis_f4_rational(polys, certify)` for optional exact checks and
   `f4::groebner_basis_f4_direct` for the direct coefficient-field algorithm.
-- Learn F4 matrix plans at the first prime and replay them at later primes. Changed
-  pivots, supports, or zero-row dependencies fall back to a full run.
+- Learn F4 matrix plans at the first prime and replay only independent rows at later
+  primes. Changed pivots or supports fall back to a full run; repeated failures
+  replace the trace. A full modular check independently validates reconstruction.
 - Intern matrix monomials, filter divisibility with degree masks, and reduce row
   blocks in parallel with reusable buffers and bounded deferred reduction.
 - Parse parentheses, polynomial powers, and division by constant expressions through
   `polycore::Ring`, retaining grouped numbers, implicit products, and formatting.
 - Correct corpus fingerprints to omit terms that vanish modulo the reference prime.
+- Check a fixed 256-system corpus tier on every push and pull request, with and
+  without Rayon. Missing fixtures, mismatches, crashes, and timeouts fail CI.
 
 ### Migration from 0.3
 
@@ -36,7 +41,6 @@
 - Rational F4 returns a reduced basis even when `canonicalize` is false. The default
   reconstruction check is probabilistic; pass `certify = true` for exact Buchberger
   and input-reduction checks.
-
 
 ## 0.3.1 (2026-09-26)
 

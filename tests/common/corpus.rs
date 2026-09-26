@@ -53,6 +53,54 @@ pub fn load_dir(root: &Path) -> Vec<System> {
     paths.iter().filter_map(|p| load(p).ok()).collect()
 }
 
+/// Load an explicit corpus tier, rejecting missing inputs/references and duplicate names.
+pub fn load_manifest(root: &Path, manifest: &Path) -> Result<Vec<System>, String> {
+    let text = fs::read_to_string(manifest)
+        .map_err(|e| format!("cannot read {}: {e}", manifest.display()))?;
+    let names = manifest_names(&text)?;
+    names
+        .into_iter()
+        .map(|name| {
+            let system = load(&root.join(format!("{name}.txt")))?;
+            if !system.reference.as_ref().is_some_and(|r| r.prime >= 2) {
+                return Err(format!("missing or invalid reference for {name}"));
+            }
+            Ok(system)
+        })
+        .collect()
+}
+
+pub fn manifest_names(text: &str) -> Result<Vec<&str>, String> {
+    let mut seen = std::collections::HashSet::new();
+    let mut names = Vec::new();
+    for name in text
+        .lines()
+        .map(|l| l.split('#').next().unwrap_or("").trim())
+    {
+        if name.is_empty() {
+            continue;
+        }
+        let parts: Vec<_> = name.split('/').collect();
+        if parts.len() != 2
+            || parts
+                .iter()
+                .any(|p| p.is_empty() || *p == "." || *p == "..")
+        {
+            return Err(format!(
+                "expected category/system in manifest, got {name:?}"
+            ));
+        }
+        if !seen.insert(name) {
+            return Err(format!("duplicate corpus system {name}"));
+        }
+        names.push(name);
+    }
+    if names.is_empty() {
+        return Err("corpus manifest is empty".into());
+    }
+    Ok(names)
+}
+
 pub fn load(path: &Path) -> Result<System, String> {
     let text = fs::read_to_string(path).map_err(|e| e.to_string())?;
     let mut char = 0;
