@@ -1,0 +1,7 @@
+char: 0
+vars: a,b,c,d,e
+d^6 - e^6
+c^6 - d^6
+b^6 - c^6
+a^5*b + b^5*c + c^5*d + d^5*e + a*e^5
+a^6 - b^6

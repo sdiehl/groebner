@@ -1,0 +1,8 @@
+char: 0
+vars: x1,x2,x3,x4,x5,x6,u1,u2,u3,u4,u5
+x6
+-x5 + u4
+x4*u2 - x3*u3
+-x3*u2 - x4*u3 + u2*u4 + u3*u5
+-x2*u2*u4 + x1*u3*u4 - x1*u2*u5 - x2*u3*u5
+x2*u1^2 - x2*u1*u2 + x1*u1*u3 - u1^2*u3 - x2*u1*u4 + x2*u2*u4 - x1*u3*u4 + u1*u3*u4 - x1*u1*u5 + u1^2*u5 + x1*u2*u5 - u1*u2*u5 + x2*u3*u5

@@ -1,0 +1,8 @@
+char: 0
+vars: bb,b,dd,d,ff,f
+bb*b - b*dd - bb*d + dd*d - 2*ff + 2
+bb*b + b*dd - bb*d - dd*d - 2*b*ff + 2*d*ff + 2*bb - 2*dd
+b^2 - 2*b*d + d^2 - 2*b - 2*d + f + 1
+bb^2*b^3 - 1
+dd^2*d^3 - 1
+ff^2*f^3 - 1

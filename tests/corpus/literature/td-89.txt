@@ -1,0 +1,5 @@
+char: 0
+vars: x,y,z,t
+x^8 - z
+x^10 - t
+x^31 - x^6 - x - y

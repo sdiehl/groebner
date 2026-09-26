@@ -1,0 +1,5 @@
+char: 0
+vars: x,y,z,c
+x^2*z + y^2*z - z*c + 1
+x*y^2 + x*z^2 - x*c + 1
+x^2*y + y*z^2 - y*c + 1

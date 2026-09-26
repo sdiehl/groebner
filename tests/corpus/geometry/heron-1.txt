@@ -1,0 +1,5 @@
+char: 0
+vars: x1,x2,a,b,c,area
+-x2*c + area
+x1^2 + x2^2 - b^2
+x1^2 + x2^2 - a^2 - 2*x1*c + c^2

@@ -1,0 +1,5 @@
+char: 0
+vars: x,y,z
+y*z^4 + x - 2
+x^4*z + y - 2
+x*y^4 + z - 2

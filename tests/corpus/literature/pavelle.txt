@@ -1,0 +1,6 @@
+char: 0
+vars: x,y,z,t,a,b,c,d
+x*t + y*t + z*t - d
+x*z + y*z + z*t - c
+x*y + y*z + y*t - b
+x*y + x*z + x*t - a

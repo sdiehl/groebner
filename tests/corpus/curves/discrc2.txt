@@ -1,0 +1,5 @@
+char: 0
+vars: x,y,a,b,c,d,e,f,g,h,i,j
+x^2*h + 2*x*y*i + 3*y^2*j + x*b + 2*y*c + e
+3*x^2*g + 2*x*y*h + y^2*i + 2*x*a + y*b + d
+x^3*g + x^2*y*h + x*y^2*i + y^3*j + x^2*a + x*y*b + y^2*c + x*d + y*e + f

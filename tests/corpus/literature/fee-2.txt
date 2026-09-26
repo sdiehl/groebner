@@ -1,0 +1,6 @@
+char: 0
+vars: q,c,p,d,b
+-p^2*b^2 + 2*p*b^2 - 2*q*p + 2*p^2 - b^2 - 2*q + 2
+p^2*d*b^2 - q*c*p*b + p^2*d*b - 2*p*d*b^2 - q*c*p + 2*q*p*d - 2*p^2*d + q*c*b + c*p*b + p*d*b + d*b^2 - 2*q*c + c*p + q*d - p*d - c*b - 2*d*b + 2*c
+p^2*d^2*b^2 - 2*q*c*p*d*b + 2*q*p*d^2*b - 2*p^2*d^2*b - 2*p*d^2*b^2 + q^2*c^2 - 2*q^2*c*d + 2*q*c*p*d + q^2*d^2 - 2*q*p*d^2 + p^2*d^2 + 2*q*c*p*b + 2*c*p*d*b - 2*q*d^2*b + 2*p*d^2*b + 2*p^2*b^2 + d^2*b^2 - 2*q*c^2 + 2*q*c*d - 2*c*p*d + 2*q*p*b - 2*c*d*b - 4*p*b^2 + c^2 - 2*q*p + 2*p^2 - 2*q*b + 4*p*b + 2*b^2 + 2*q - 4*b + 2
+6*q*c*p*d*b + 3*q^2*c^2 - 3*q^2*d^2 + 6*q*p*d^2 - 3*p^2*d^2 + 6*q*c*d*b + 6*c*p*d*b + p^2*b^2 + 3*d^2*b^2 - 6*q*c^2 - 6*c*d*b - 2*p*b^2 - 4*q^2 + 3*c^2 + p^2 + b^2 + 2*p + 1

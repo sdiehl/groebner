@@ -1,0 +1,36 @@
+char: 0
+vars: px2,px3,px4,px5,px6,py3,py4,py5,pz4,pz5,bx2,bx3,bx4,bx5,by3,by4,by5,bz4,bz5,D1,D2,D3,D4,D5,D6,x1,x2,x3,y1,y2,y3,z1,z2,z3
+625*D6 + 1143
+10000*D5 + 31361
+625*D4 + 1562
+500*D3 + 1009
+2500*D2 + 5809
+2500*D1 + 2771
+625*bz5 + 1134
+10000*bz4 - 18203
+2000*by5 - 2747
+16000*by4 + 719
+1000*by3 - 1799
+5000*bx5 + 5113
+10000*bx4 - 5203
+5000*bx3 + 463
+bx2 - 1
+2500*pz5 + 4891
+2500*pz4 - 1421
+5000*py5 - 723
+20000*py4 + 18129
+2500000*py3 - 1471347
+10000*px6 + 25081
+10000*px5 + 9141
+1250*px4 + 247
+8000*px3 + 2661
+10000*px2 + 25071
+-D1^2 + x1^2 + y1^2 + z1^2
+bx3^2 + by3^2 - D3^2 - 2*bx3*x3 + x3^2 - 2*by3*y3 + y3^2 + z3^2
+bx2^2 - D2^2 - 2*bx2*x2 + x2^2 + y2^2 + z2^2
+px3^2 + py3^2 + bx3^2 + by3^2 - D1^2 - D3^2 - 2*bx3*x3 + 2*x1*x3 - 2*by3*y3 + 2*y1*y3 + 2*z1*z3
+px2^2 + bx2^2 - D1^2 - D2^2 - 2*bx2*x2 + 2*x1*x2 + 2*y1*y2 + 2*z1*z2
+px2^2 - 2*px2*px3 + px3^2 + py3^2 + bx2^2 + bx3^2 + by3^2 - D2^2 - D3^2 - 2*bx2*x2 - 2*bx3*x3 + 2*x2*x3 - 2*by3*y3 + 2*y2*y3 + 2*z2*z3
+-2*px2^2*px6 + 2*px2*px6^2 - 2*px6*bx2^2 + 2*px2*D1^2 - 2*px6*D1^2 + 2*px6*D2^2 - 2*px2*D6^2 + 4*px6*bx2*x2
+-2*px2^2*px5*py3 + 2*px2*px5^2*py3 + 2*px2^2*px3*py5 - 2*px2*px3^2*py5 - 2*px2*py3^2*py5 + 2*px2*py3*py5^2 + 2*px2*py3*pz5^2 - 2*px5*py3*bx2^2 + 2*px3*py5*bx2^2 - 2*px2*py5*bx3^2 + 2*px2*py3*bx5^2 - 2*px2*py5*by3^2 + 2*px2*py3*by5^2 + 2*px2*py3*bz5^2 + 2*px2*py3*D1^2 - 2*px5*py3*D1^2 - 2*px2*py5*D1^2 + 2*px3*py5*D1^2 + 2*px5*py3*D2^2 - 2*px3*py5*D2^2 + 2*px2*py5*D3^2 - 2*px2*py3*D5^2 - 4*px2*py3*bx5*x1 + 4*px5*py3*bx5*x1 + 4*px2*py5*bx5*x1 - 4*px3*py5*bx5*x1 + 4*px5*py3*bx2*x2 - 4*px3*py5*bx2*x2 - 4*px5*py3*bx5*x2 + 4*px3*py5*bx5*x2 + 4*px2*py5*bx3*x3 - 4*px2*py5*bx5*x3 - 4*px2*py3*by5*y1 + 4*px5*py3*by5*y1 + 4*px2*py5*by5*y1 - 4*px3*py5*by5*y1 + 4*pz5*bz5*x2*y1 - 4*pz5*bz5*x3*y1 - 4*px5*py3*by5*y2 + 4*px3*py5*by5*y2 - 4*pz5*bz5*x1*y2 + 4*pz5*bz5*x3*y2 + 4*px2*py5*by3*y3 - 4*px2*py5*by5*y3 + 4*pz5*bz5*x1*y3 - 4*pz5*bz5*x2*y3 - 4*px2*py3*bz5*z1 + 4*px5*py3*bz5*z1 + 4*px2*py5*bz5*z1 - 4*px3*py5*bz5*z1 - 4*pz5*by5*x2*z1 + 4*pz5*by5*x3*z1 + 4*pz5*bx5*y2*z1 - 4*pz5*x3*y2*z1 - 4*pz5*bx5*y3*z1 + 4*pz5*x2*y3*z1 - 4*px5*py3*bz5*z2 + 4*px3*py5*bz5*z2 + 4*pz5*by5*x1*z2 - 4*pz5*by5*x3*z2 - 4*pz5*bx5*y1*z2 + 4*pz5*x3*y1*z2 + 4*pz5*bx5*y3*z2 - 4*pz5*x1*y3*z2 - 4*px2*py5*bz5*z3 - 4*pz5*by5*x1*z3 + 4*pz5*by5*x2*z3 + 4*pz5*bx5*y1*z3 - 4*pz5*x2*y1*z3 - 4*pz5*bx5*y2*z3 + 4*pz5*x1*y2*z3
+-2*px2^2*px4*py3 + 2*px2*px4^2*py3 + 2*px2^2*px3*py4 - 2*px2*px3^2*py4 - 2*px2*py3^2*py4 + 2*px2*py3*py4^2 + 2*px2*py3*pz4^2 - 2*px4*py3*bx2^2 + 2*px3*py4*bx2^2 - 2*px2*py4*bx3^2 + 2*px2*py3*bx4^2 - 2*px2*py4*by3^2 + 2*px2*py3*by4^2 + 2*px2*py3*bz4^2 + 2*px2*py3*D1^2 - 2*px4*py3*D1^2 - 2*px2*py4*D1^2 + 2*px3*py4*D1^2 + 2*px4*py3*D2^2 - 2*px3*py4*D2^2 + 2*px2*py4*D3^2 - 2*px2*py3*D4^2 - 4*px2*py3*bx4*x1 + 4*px4*py3*bx4*x1 + 4*px2*py4*bx4*x1 - 4*px3*py4*bx4*x1 + 4*px4*py3*bx2*x2 - 4*px3*py4*bx2*x2 - 4*px4*py3*bx4*x2 + 4*px3*py4*bx4*x2 + 4*px2*py4*bx3*x3 - 4*px2*py4*bx4*x3 - 4*px2*py3*by4*y1 + 4*px4*py3*by4*y1 + 4*px2*py4*by4*y1 - 4*px3*py4*by4*y1 + 4*pz4*bz4*x2*y1 - 4*pz4*bz4*x3*y1 - 4*px4*py3*by4*y2 + 4*px3*py4*by4*y2 - 4*pz4*bz4*x1*y2 + 4*pz4*bz4*x3*y2 + 4*px2*py4*by3*y3 - 4*px2*py4*by4*y3 + 4*pz4*bz4*x1*y3 - 4*pz4*bz4*x2*y3 - 4*px2*py3*bz4*z1 + 4*px4*py3*bz4*z1 + 4*px2*py4*bz4*z1 - 4*px3*py4*bz4*z1 - 4*pz4*by4*x2*z1 + 4*pz4*by4*x3*z1 + 4*pz4*bx4*y2*z1 - 4*pz4*x3*y2*z1 - 4*pz4*bx4*y3*z1 + 4*pz4*x2*y3*z1 - 4*px4*py3*bz4*z2 + 4*px3*py4*bz4*z2 + 4*pz4*by4*x1*z2 - 4*pz4*by4*x3*z2 - 4*pz4*bx4*y1*z2 + 4*pz4*x3*y1*z2 + 4*pz4*bx4*y3*z2 - 4*pz4*x1*y3*z2 - 4*px2*py4*bz4*z3 - 4*pz4*by4*x1*z3 + 4*pz4*by4*x2*z3 + 4*pz4*bx4*y1*z3 - 4*pz4*x2*y1*z3 - 4*pz4*bx4*y2*z3 + 4*pz4*x1*y2*z3

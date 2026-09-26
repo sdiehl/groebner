@@ -1,0 +1,5 @@
+char: 0
+vars: z,y,x,w
+z*w - x*w + y
+z*y - 2*x^2 - x*w - 1
+z^2*w - z*x*w + z^2 - z*x + x*w + 3*x

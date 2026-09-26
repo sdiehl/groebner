@@ -1,0 +1,6 @@
+char: 0
+vars: x,a,b,y
+3*x^2 - 2*x - a
+x^3 - x^2 - x*a + a - 2*b - 2
+3*y^2 - a - 2*y
+y^3 - a*y - y^2 - a + 2

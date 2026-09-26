@@ -1,0 +1,5 @@
+char: 0
+vars: y,x,a6,a4,a3,a2,a1
+x*a1 + 2*y + a3
+-3*x^2 - 2*x*a2 + y*a1 - a4
+-x^3 - x^2*a2 + y*x*a1 + y^2 - x*a4 + y*a3 - a6

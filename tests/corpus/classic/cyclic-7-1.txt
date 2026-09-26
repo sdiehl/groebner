@@ -1,0 +1,5 @@
+char: 0
+vars: a,b,c
+a^2*b*c + a*b^2*c + a*b*c^2 + a*b*c + a*b + a*c + b*c
+a^2*b^2*c + a*b^2*c^2 + a^2*b*c + a*b*c + b*c + a + c
+a^2*b^2*c^2 + a^2*b^2*c + a*b^2*c + a*b*c + a*c + c + 1

@@ -1,0 +1,8 @@
+char: 0
+vars: b,d,B,D,F,f
+b*B - d*B - b*D + d*D - 2*F + 2
+b*B - d*B + b*D - d*D - 2*b*F + 2*d*F + 2*B - 2*D
+b^2 - 2*b*d + d^2 - 2*b - 2*d + f + 1
+b^3*B^2 - 1
+d^3*D^2 - 1
+F^2*f^3 - 1

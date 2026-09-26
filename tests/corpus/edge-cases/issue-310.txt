@@ -1,0 +1,3 @@
+char: 0
+vars: x
+x^3 - 1

@@ -1,0 +1,5 @@
+char: 0
+vars: d,c,b,a
+-3*d*c + b^2 - 2*a + 2
+-3*d*a^2 - 4*c*b + 2*b^2 - 6*c*a + 3*b*a
+-3*d*c^2 + c*b^2 - d*a + b

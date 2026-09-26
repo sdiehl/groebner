@@ -13,6 +13,7 @@ include = [
   "src/**/*",
   "examples/**/*",
   "tests/**/*",
+  "!tests/corpus/**",
   "benches/**/*",
   "README.md",
   "LICENSE",
@@ -40,6 +41,7 @@ parallel = ["dep:rayon"]
 
 [dev-dependencies]
 criterion = "0.8"
+num-bigint = "0.4"
 
 [[example]]
 name = "basic"
@@ -52,6 +54,10 @@ path = "examples/buchberger.rs"
 [[example]]
 name = "f4"
 path = "examples/f4.rs"
+
+[[example]]
+name = "corpus"
+path = "examples/corpus.rs"
 
 [[bench]]
 name = "groebner_bench"

@@ -1,0 +1,5 @@
+char: 0
+vars: r,t,x,y,z
+-r*t + x
+-r^2 + z
+-r*t^2 + y

@@ -1,0 +1,10 @@
+char: 0
+vars: ca,sa,cb,sb,cc,sc,cd,sd
+ca^2 + sa^2 - 1
+cb^2 + sb^2 - 1
+cc^2 + sc^2 - 1
+cd^2 + sd^2 - 1
+8*ca*cb*cc + 8*sa*cb*cc - 8*ca*sb*cc + 8*sa*sb*cc - 8*ca*cb*sc + 8*sa*cb*sc - 8*ca*sb*sc - 8*sa*sb*sc - 16*ca*cb + 12*sa*cb - 12*ca*sb - 16*sa*sb + 24*cb*cc - 24*sb*cc - 24*cb*sc - 24*sb*sc + 24*ca - 48*cb - 36*sb - 4*cc + 28*sc + 48
+-8*ca*cb*cd + 16*sa*cb*cd - 16*ca*sb*cd - 8*sa*sb*cd + 16*ca*cb*sd + 8*sa*cb*sd - 8*ca*sb*sd + 16*sa*sb*sd + 8*ca*cb + 12*sa*cb - 12*ca*sb + 8*sa*sb - 32*cb*cd + 86*sb*cd - 86*cb*sd - 32*sb*sd - 28*ca - 30*sa - 73*cb + 12*sb + 16*cd + 28*sd + 112
+280*ca*cb*cc - 1400*sa*cb*cc + 1400*ca*sb*cc + 280*sa*sb*cc + 1400*ca*cb*sc + 280*sa*cb*sc - 280*ca*sb*sc + 1400*sa*sb*sc - 980*ca*cb*cd - 1960*sa*cb*cd + 1960*ca*sb*cd - 980*sa*sb*cd - 1960*ca*cb*sd + 980*sa*cb*sd - 980*ca*sb*sd - 1960*sa*sb*sd + 56*ca*cb + 2268*sa*cb - 2268*ca*sb + 56*sa*sb + 6860*cb*cc + 1540*sb*cc + 1540*cb*sc - 6860*sb*sc + 6860*cb*cd + 8330*sb*cd + 6300*cc*cd - 4900*sc*cd - 8330*cb*sd + 6860*sb*sd - 4900*cc*sd - 6300*sc*sd + 784*ca - 1764*sa - 10094*cb - 4788*sb - 8060*cc + 1820*sc - 11480*cd + 5390*sd + 19798
+280*cc*cd - 280*sc*sd - 240*cc - 336*cd + 391

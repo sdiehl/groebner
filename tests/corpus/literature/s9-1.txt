@@ -1,0 +1,10 @@
+char: 0
+vars: e,g,d,h,b,c,f,a
+-e*g - 2*d*h
+9*e + 4*b
+-3*g*d - 4*h*c - 2*e*f
+-7*c - 8*f + 9*a
+-5*g*c - 4*d*f - 3*e - 6*h
+-6*c*f - 7*g - 5*d + 9*b
+9*d - 5*b + 6*a
+9*c - 7*a + 8

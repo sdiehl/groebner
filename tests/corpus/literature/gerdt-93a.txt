@@ -1,0 +1,5 @@
+char: 0
+vars: h,l,s,z,y,x
+h*l - l^2 - 4*l*s + h*y
+-6*l*s^3 + h^2*s + h^2*z
+-h^3 - l^2*s + h^2*x

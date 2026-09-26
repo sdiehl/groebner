@@ -1,0 +1,4 @@
+char: 0
+vars: x,y,a,b,c,d,e,f,g,h,k
+x^2*b + 4*x*y*d + y^2*g + 2*x*e + y*h + k
+x^2*a + x*y*b + y^2*d + x*c + y*e + f

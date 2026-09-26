@@ -1,0 +1,18 @@
+char: 0
+vars: sp,st,sf,cp,ct,cf,s2,s1,c2,c1,l1,l2,px,py,pz
+s2*l2 + l1 - pz
+ct
+c2*c1*l2 - px
+s1*c2*l2 - py
+s1^2 + c1^2 - 1
+s2^2 + c2^2 - 1
+-st*cf + s1
+st*cp + s2
+sf^2 + cf^2 - 1
+st^2 + ct^2 - 1
+-sp*st + c2
+sp^2 + cp^2 - 1
+-cp*ct*cf + sp*sf + c2*c1
+-sp*ct*cf + sf*cp - s2*c1
+-sf*cp*ct - sp*cf + s1*c2
+sp*sf*ct - cp*cf - s2*s1

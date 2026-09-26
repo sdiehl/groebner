@@ -1,0 +1,9 @@
+char: 0
+vars: s1,s2,s3,c1,c2,c3,d,a,b,c,l2,l3
+c2*l2 + c3*l3 - d
+s2*l2 + s3*l3 - c
+c1*d - b
+s1*d + a
+s3^2 + c3^2 - 1
+s2^2 + c2^2 - 1
+s1^2 + c1^2 - 1

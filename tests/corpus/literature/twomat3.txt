@@ -1,0 +1,10 @@
+char: 0
+vars: a,b,c,d,e,f,g,h,i,A,B,C,D,E,F,G,H,I
+d*C - c*D - f*E + e*F - i*F + f*I
+-d*B - g*C + b*D + c*G
+d*B - b*D - h*F + f*H
+g*A + h*D - a*G + i*G - d*H - g*I
+d*A - a*D + e*D - d*E - g*F + f*G
+-c*A - f*B + a*C - i*C + b*F + c*I
+-b*A + a*B - e*B - h*C + b*E + c*H
+-g*h*C*I + g*B + h*E + h*F - b*G - c*G - e*H - f*H + i*H

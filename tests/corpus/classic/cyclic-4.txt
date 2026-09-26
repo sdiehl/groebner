@@ -1,0 +1,6 @@
+char: 0
+vars: w,x,y,z
+w + x + y + z
+w*x + x*y + w*z + y*z
+w*x*y + w*x*z + w*y*z + x*y*z
+w*x*y*z - 1

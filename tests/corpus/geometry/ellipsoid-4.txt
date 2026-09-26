@@ -1,0 +1,6 @@
+char: 0
+vars: l,x,y,z,ma,mb,mc,a,b,c
+z*c^4 - mc*c^4 + 4*l*z^3
+y*b^4 - mb*b^4 + 4*l*y^3
+z^4*a^4*b^4 + y^4*a^4*c^4 + x^4*b^4*c^4 - a^4*b^4*c^4
+x*a^4 - ma*a^4 + 4*l*x^3

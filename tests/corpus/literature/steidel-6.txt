@@ -1,0 +1,11 @@
+char: 0
+vars: s,r,b,u,v,w,x,y,z
+s*u + b*v
+r*u + b*w
+r*v + s*w
+s*x + b*y
+r*x + b*z
+r*y + s*z
+v*x + u*y
+w*x + u*z
+w*y + v*z

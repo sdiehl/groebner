@@ -1,0 +1,5 @@
+char: 0
+vars: x,y,z
+z^3 + x + y - 3
+y^3 + x + z - 3
+x^3 + y + z - 3
