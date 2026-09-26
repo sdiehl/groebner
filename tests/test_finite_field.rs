@@ -1,4 +1,4 @@
-use groebner::{groebner_basis, Field, MonomialOrder, PolynomialRing, PrimeField};
+use groebner::{Field, MonomialOrder, PolynomialRing, PrimeField, groebner_basis};
 
 type F32003 = PrimeField<32003>;
 

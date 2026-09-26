@@ -1,6 +1,6 @@
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
-use groebner::{fglm, groebner_basis_f4, Ideal, MonomialOrder, PolynomialRing, PrimeField};
+use groebner::{Ideal, MonomialOrder, PolynomialRing, PrimeField, fglm, groebner_basis_f4};
 use num_rational::BigRational;
 
 type F = PrimeField<32003>;

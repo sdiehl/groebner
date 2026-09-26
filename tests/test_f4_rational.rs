@@ -1,7 +1,7 @@
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
 use groebner::{
-    groebner_basis, groebner_basis_f4, is_groebner_basis, MonomialOrder, PolynomialRing,
+    MonomialOrder, PolynomialRing, groebner_basis, groebner_basis_f4, is_groebner_basis,
 };
 use num_rational::BigRational;
 

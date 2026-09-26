@@ -10,10 +10,10 @@
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 
-use crate::f4::{groebner_basis_f4, F4Field};
+use crate::f4::{F4Field, groebner_basis_f4};
 use crate::fglm;
 use crate::field::Field;
-use crate::groebner::{finish_basis, prepare_input, GroebnerError};
+use crate::groebner::{GroebnerError, finish_basis, prepare_input};
 use crate::monomial::{Monomial, MonomialOrder};
 use crate::polynomial::{Polynomial, Term};
 

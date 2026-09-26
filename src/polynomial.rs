@@ -314,14 +314,14 @@ impl<F: Field> Polynomial<F> {
 }
 
 fn push_combined<F: Field>(terms: &mut Vec<Term<F>>, term: Term<F>) {
-    if let Some(last) = terms.last_mut() {
-        if last.monomial == term.monomial {
-            last.coefficient = last.coefficient.add(&term.coefficient);
-            if last.coefficient.is_zero() {
-                terms.pop();
-            }
-            return;
+    if let Some(last) = terms.last_mut()
+        && last.monomial == term.monomial
+    {
+        last.coefficient = last.coefficient.add(&term.coefficient);
+        if last.coefficient.is_zero() {
+            terms.pop();
         }
+        return;
     }
     terms.push(term);
 }

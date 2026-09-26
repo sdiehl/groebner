@@ -1,10 +1,10 @@
 #![allow(clippy::expect_used)]
 
-use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
+use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 #[cfg(feature = "parallel")]
 use groebner::groebner_basis_parallel;
 use groebner::{
-    groebner_basis, groebner_basis_f4, MonomialOrder, Polynomial, PolynomialRing, PrimeField,
+    MonomialOrder, Polynomial, PolynomialRing, PrimeField, groebner_basis, groebner_basis_f4,
 };
 use num_rational::BigRational;
 use std::hint::black_box;

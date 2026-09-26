@@ -1,5 +1,5 @@
 extern crate groebner;
-use groebner::{groebner_basis, is_groebner_basis, MonomialOrder, Polynomial, PolynomialRing};
+use groebner::{MonomialOrder, Polynomial, PolynomialRing, groebner_basis, is_groebner_basis};
 use num_rational::BigRational;
 
 const TEST_VARIABLES: [&str; 10] = ["x", "y", "z", "w", "u", "v", "a", "b", "c", "d"];

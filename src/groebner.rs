@@ -20,7 +20,7 @@ use crate::field::Field;
 use crate::grebauer_moller;
 use crate::monomial::Monomial;
 use crate::polynomial::Polynomial;
-use crate::sugar::{select_next_by_sugar, SugaredPolynomial};
+use crate::sugar::{SugaredPolynomial, select_next_by_sugar};
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 use std::cmp::Ordering;

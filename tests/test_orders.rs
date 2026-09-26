@@ -1,8 +1,8 @@
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
 use groebner::{
-    groebner_basis, groebner_basis_f4, is_groebner_basis, Monomial, MonomialOrder, PolynomialRing,
-    PrimeField,
+    Monomial, MonomialOrder, PolynomialRing, PrimeField, groebner_basis, groebner_basis_f4,
+    is_groebner_basis,
 };
 use std::cmp::Ordering;
 

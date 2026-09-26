@@ -1,8 +1,8 @@
 #![allow(clippy::expect_used)]
 
 use groebner::{
-    groebner_basis, groebner_basis_f4, is_groebner_basis, MonomialOrder, Polynomial,
-    PolynomialRing, PrimeField,
+    MonomialOrder, Polynomial, PolynomialRing, PrimeField, groebner_basis, groebner_basis_f4,
+    is_groebner_basis,
 };
 
 type F32003 = PrimeField<32003>;

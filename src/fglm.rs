@@ -12,7 +12,7 @@
 //! ```
 
 use crate::field::Field;
-use crate::groebner::{compare_leading, GroebnerError};
+use crate::groebner::{GroebnerError, compare_leading};
 use crate::monomial::{Monomial, MonomialOrder};
 use crate::polynomial::{Polynomial, Term};
 use std::cmp::Ordering;
@@ -181,10 +181,10 @@ fn normal_form_of<F: Field>(
 ) -> Result<Polynomial<F>, GroebnerError> {
     let order = basis[0].order.clone();
     for (b, nf) in staircase.iter().rev() {
-        if let Some(q) = m.divide(b) {
-            if q.degree() == 1 {
-                return Ok(nf.multiply_monomial(&q).reduce(basis)?);
-            }
+        if let Some(q) = m.divide(b)
+            && q.degree() == 1
+        {
+            return Ok(nf.multiply_monomial(&q).reduce(basis)?);
         }
     }
     Ok(Polynomial::monomial(m.clone(), order).reduce(basis)?)

@@ -1,4 +1,4 @@
-use groebner::groebner::{groebner_basis_with_strategy, SelectionStrategy};
+use groebner::groebner::{SelectionStrategy, groebner_basis_with_strategy};
 use groebner::{MonomialOrder, PolynomialRing};
 use num_rational::BigRational;
 

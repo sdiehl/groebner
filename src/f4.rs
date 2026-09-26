@@ -17,7 +17,7 @@
 
 use crate::field::{Field, ModularField};
 use crate::finite_field::{PrimeField, Zp};
-use crate::groebner::{finish_basis, prepare_input, GroebnerError};
+use crate::groebner::{GroebnerError, finish_basis, prepare_input};
 use crate::monomial::{Monomial, MonomialOrder};
 use crate::polynomial::{Polynomial, Term};
 use num_rational::BigRational;

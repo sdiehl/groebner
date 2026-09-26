@@ -1,8 +1,8 @@
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
 use groebner::{
-    groebner_basis, groebner_basis_f4, is_groebner_basis, Field, MonomialOrder, PolynomialRing,
-    PrimeField, Zp,
+    Field, MonomialOrder, PolynomialRing, PrimeField, Zp, groebner_basis, groebner_basis_f4,
+    is_groebner_basis,
 };
 
 const P64: u64 = 18_446_744_073_709_551_557;

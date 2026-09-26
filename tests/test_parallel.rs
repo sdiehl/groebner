@@ -1,8 +1,8 @@
 #![cfg(feature = "parallel")]
 
 use groebner::{
-    groebner_basis, groebner_basis_parallel, is_groebner_basis, is_groebner_basis_parallel,
-    MonomialOrder, Polynomial, PolynomialRing,
+    MonomialOrder, Polynomial, PolynomialRing, groebner_basis, groebner_basis_parallel,
+    is_groebner_basis, is_groebner_basis_parallel,
 };
 use num_rational::BigRational;
 

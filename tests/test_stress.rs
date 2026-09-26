@@ -1,5 +1,5 @@
 extern crate groebner;
-use groebner::{groebner_basis, MonomialOrder, Polynomial, PolynomialRing};
+use groebner::{MonomialOrder, Polynomial, PolynomialRing, groebner_basis};
 use num_rational::BigRational;
 use std::time::Instant;
 
@@ -25,7 +25,11 @@ fn make_poly(
             *exp = (((i + v * offset + SEED * v) * (v + 1)) % (max_deg as usize + 1)) as u32;
         }
         // Vary coefficients: alternate sign, use offset
-        let sign = if (i + offset) % 2 == 0 { 1 } else { -1 };
+        let sign = if (i + offset).is_multiple_of(2) {
+            1
+        } else {
+            -1
+        };
         push_term(
             &mut expression,
             i,

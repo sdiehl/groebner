@@ -58,19 +58,19 @@ pub mod sugar;
 
 #[allow(deprecated)]
 pub use f4::groebner_basis_f4_mod;
-pub use f4::{groebner_basis_f4, F4Field, SparseRow};
+pub use f4::{F4Field, SparseRow, groebner_basis_f4};
 pub use fglm::{fglm, is_zero_dimensional, standard_monomials};
 pub use field::{Field, ModularField};
 pub use finite_field::{PrimeField, PrimeFieldParseError, Zp};
 pub use grebauer_moller::filter_gm_pairs;
 pub use groebner::{
-    groebner_basis, groebner_basis_incremental, groebner_basis_with_strategy, is_groebner_basis,
-    GroebnerError, SelectionStrategy,
+    GroebnerError, SelectionStrategy, groebner_basis, groebner_basis_incremental,
+    groebner_basis_with_strategy, is_groebner_basis,
 };
 #[cfg(feature = "parallel")]
 pub use groebner::{groebner_basis_parallel, is_groebner_basis_parallel};
 pub use ideal::Ideal;
 pub use monomial::{Monomial, MonomialOrder};
 pub use polynomial::{Polynomial, Term};
-pub use rational_function::{specialize, RationalFunction};
+pub use rational_function::{RationalFunction, specialize};
 pub use ring::{ParseCoefficient, ParsePolynomialError, PolynomialRing};

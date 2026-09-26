@@ -1,4 +1,4 @@
-use groebner::{groebner_basis, MonomialOrder, PolynomialRing};
+use groebner::{MonomialOrder, PolynomialRing, groebner_basis};
 use num_rational::BigRational;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
