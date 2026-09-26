@@ -53,6 +53,21 @@ let lex = ideal.change_order(MonomialOrder::Lex)?;
 assert!(lex.contains(&ring.parse("y^6 + y^2 - 1")?)?);
 ```
 
+`Ideal::lift` returns cofactors `h` with `f = sum h[k] * generators[k]` for members (as in
+Singular's `lift`), so an external checker can confirm membership with `verify_lift`, which uses
+only ring addition and multiplication:
+
+```rust
+use groebner::{Ideal, MonomialOrder, PolynomialRing, verify_lift};
+use num_rational::BigRational;
+
+let ring = PolynomialRing::<BigRational>::new(["x", "y"], MonomialOrder::GRevLex)?;
+let ideal = Ideal::new(ring.parse_many("x^2 - y; y^2 - x")?)?;
+let f = ring.parse("x^4 - x")?;
+let h = ideal.lift(&f)?.ok_or("not a member")?;
+assert!(verify_lift(ideal.generators(), &h, &f));
+```
+
 Monomial orders: `Lex`, `GrLex`, `GRevLex`, `MonomialOrder::weighted(weights, tie_break)`,
 and product orders via `MonomialOrder::block` or `MonomialOrder::elimination(k, rest)`.
 

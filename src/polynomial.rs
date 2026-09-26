@@ -271,20 +271,47 @@ impl<F: Field> Polynomial<F> {
 
     /// Full normal form of `self` modulo `basis`: no remaining term is divisible by any leading monomial.
     pub fn reduce(&self, basis: &[Self]) -> Result<Self, PolynomialError> {
-        let divisors: Vec<_> = basis
+        self.division(basis, |_, _, _| {})
+    }
+
+    /// Multivariate division: quotients `q` and remainder `r` with `self = sum q[i] * divisors[i] + r`.
+    pub fn divide(&self, divisors: &[Self]) -> Result<(Vec<Self>, Self), PolynomialError> {
+        let mut quotients = vec![Vec::new(); divisors.len()];
+        let remainder = self.division(divisors, |i, c, m| {
+            quotients[i].push(Term::new(c.clone(), m.clone()));
+        })?;
+        let quotients = quotients
+            .into_iter()
+            .map(|terms| Self {
+                terms,
+                nvars: self.nvars,
+                order: self.order.clone(),
+            })
+            .collect();
+        Ok((quotients, remainder))
+    }
+
+    /// Division loop reporting each quotient term `c * m` against divisor `i`, in descending order.
+    fn division(
+        &self,
+        divisors: &[Self],
+        mut record: impl FnMut(usize, &F, &Monomial),
+    ) -> Result<Self, PolynomialError> {
+        let leads: Vec<_> = divisors
             .iter()
-            .filter_map(|g| g.leading_term().map(|lt| (lt, g)))
+            .enumerate()
+            .filter_map(|(i, g)| g.leading_term().map(|lt| (i, lt, g)))
             .collect();
         let mut work = self.clone();
         let mut head = 0;
         let mut rest = Vec::new();
         while head < work.terms.len() {
             let lt = &work.terms[head];
-            let reducer = divisors
+            let reducer = leads
                 .iter()
-                .filter(|(glt, _)| glt.monomial.divides(&lt.monomial))
-                .min_by_key(|(_, g)| g.terms.len());
-            if let Some((glt, g)) = reducer {
+                .filter(|(_, glt, _)| glt.monomial.divides(&lt.monomial))
+                .min_by_key(|(_, _, g)| g.terms.len());
+            if let Some((i, glt, g)) = reducer {
                 let m = lt
                     .monomial
                     .divide(&glt.monomial)
@@ -293,6 +320,7 @@ impl<F: Field> Polynomial<F> {
                     .coefficient
                     .divide(&glt.coefficient)
                     .ok_or(PolynomialError::DivisionByZero)?;
+                record(*i, &c, &m);
                 let tail = Self {
                     terms: work.terms[head..].to_vec(),
                     nvars: work.nvars,

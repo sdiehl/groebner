@@ -1,13 +1,20 @@
 # Changelog
 
-## Unreleased
+## 0.3.1 (2026-09-26)
 
-- Add `RationalFunction` for coefficients in Q(a) with one parameter.
+- Add `RationalFunction` for coefficients in Q(a).
 - Add `PolynomialRing::with_parameter` for parsing and printing parameters.
 - Add `specialize` to substitute a value for the parameter.
-- Add `ParseCoefficient` hooks for parameter parsing and coefficient printing.
+- Add defaulted `ParseCoefficient` hooks for parameters and printing.
+- Add `Polynomial::divide` returning quotients and remainder.
+- Add `Ideal::lift` and `LiftBasis` for membership certificates.
+- Add `Ideal::generators` for the original generating polynomials.
+- Add `verify_lift` to check certificates by ring arithmetic.
+- Add cyclic8-9, eco12, katsura8-10, and noon9 benchmarks.
+- Drop the direct `num-bigint` dependency.
+- Move to edition 2024 with minimum Rust 1.98.
 
-## 0.3.0
+## 0.3.0 (2026-09-25)
 
 - Add generic `groebner_basis_f4` over any `F4Field`, including `BigRational`.
 - Add dense modular F4 path for `PrimeField` and `Zp`.

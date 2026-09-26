@@ -81,7 +81,7 @@ pub struct CriticalPair {
 }
 
 impl CriticalPair {
-    fn new<F: Field>(
+    pub(crate) fn new<F: Field>(
         i: usize,
         j: usize,
         poly_i: &Polynomial<F>,
@@ -337,7 +337,8 @@ pub(crate) fn compare_leading<F: Field>(
     }
 }
 
-fn minimize_basis<F: Field>(basis: &mut Vec<Polynomial<F>>) {
+/// Which basis elements survive minimization: no leading monomial divisible by another's.
+pub(crate) fn minimal_mask<F: Field>(basis: &[Polynomial<F>]) -> Vec<bool> {
     let leads: Vec<_> = basis
         .iter()
         .filter_map(|p| p.leading_monomial().cloned())
@@ -351,6 +352,11 @@ fn minimize_basis<F: Field>(basis: &mut Vec<Polynomial<F>>) {
             }
         }
     }
+    keep
+}
+
+fn minimize_basis<F: Field>(basis: &mut Vec<Polynomial<F>>) {
+    let keep = minimal_mask(basis);
     let mut index = 0;
     basis.retain(|_| {
         index += 1;

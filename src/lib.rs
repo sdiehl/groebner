@@ -5,7 +5,7 @@
 //! - [`groebner_basis`], [`groebner_basis_incremental`], [`groebner_basis_with_strategy`] and
 //!   [`groebner_basis_parallel`]: Buchberger over any [`Field`].
 //! - [`Ideal`]: normal forms, membership, elimination, dimension, radical membership and
-//!   change of order via [`fglm()`].
+//!   change of order via [`fglm()`], and membership certificates via [`Ideal::lift`].
 //! - [`PolynomialRing`]: parsing and formatting with named variables under any [`MonomialOrder`].
 //! - [`RationalFunction`]: coefficients in Q(a) for systems with one symbolic parameter.
 //!
@@ -50,6 +50,7 @@ pub mod finite_field;
 pub mod grebauer_moller;
 pub mod groebner;
 pub mod ideal;
+pub mod lift;
 pub mod monomial;
 pub mod polynomial;
 pub mod rational_function;
@@ -70,6 +71,7 @@ pub use groebner::{
 #[cfg(feature = "parallel")]
 pub use groebner::{groebner_basis_parallel, is_groebner_basis_parallel};
 pub use ideal::Ideal;
+pub use lift::{LiftBasis, verify_lift};
 pub use monomial::{Monomial, MonomialOrder};
 pub use polynomial::{Polynomial, Term};
 pub use rational_function::{RationalFunction, specialize};
