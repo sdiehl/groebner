@@ -10,13 +10,14 @@
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 
+use crate::Field;
 use crate::f4::{F4Field, groebner_basis_f4};
 use crate::fglm;
-use crate::field::Field;
 use crate::groebner::{GroebnerError, finish_basis, prepare_input};
 use crate::lift::LiftBasis;
 use crate::monomial::{Monomial, MonomialOrder};
-use crate::polynomial::{Polynomial, Term};
+use crate::polynomial::Polynomial;
+use crate::{MonomialExt, PolynomialExt};
 use std::sync::OnceLock;
 
 #[derive(Debug, Clone)]
@@ -60,7 +61,7 @@ impl<F: F4Field> Ideal<F> {
             .filter(|p| {
                 p.terms
                     .iter()
-                    .all(|t| t.monomial.exponents()[..k].iter().all(|e| *e == 0))
+                    .all(|t| t.0.exps()[..k].iter().all(|e| *e == 0))
             })
             .collect();
         if kept.is_empty() {
@@ -90,9 +91,9 @@ impl<F: F4Field> Ideal<F> {
                 .terms
                 .iter()
                 .map(|term| {
-                    let mut e = term.monomial.exponents().to_vec();
+                    let mut e = term.0.exps().to_vec();
                     e.push(t_power);
-                    Term::new(term.coefficient.clone(), Monomial::new(e))
+                    crate::polynomial::term(term.1.clone(), Monomial::new(e))
                 })
                 .collect();
             Polynomial::new(terms, n, order.clone())
@@ -180,7 +181,7 @@ impl<F: Field> Ideal<F> {
     }
 
     pub fn normal_form(&self, f: &Polynomial<F>) -> Result<Polynomial<F>, GroebnerError> {
-        Ok(f.reorder(self.order.clone()).reduce(&self.basis)?)
+        Ok(f.reorder(self.order.clone()).normal_form(&self.basis)?)
     }
 
     pub fn contains(&self, f: &Polynomial<F>) -> Result<bool, GroebnerError> {
@@ -216,16 +217,16 @@ impl<F: Field> Ideal<F> {
         let x = Monomial::variable(var, self.nvars);
         let mut matrix = Vec::with_capacity(monomials.len());
         for m in &monomials {
-            let image =
-                Polynomial::monomial(m.multiply(&x), self.order.clone()).reduce(&self.basis)?;
+            let image = Polynomial::monomial(m.multiply(&x), self.order.clone())
+                .normal_form(&self.basis)?;
             let column = monomials
                 .iter()
                 .map(|b| {
                     image
                         .terms
                         .iter()
-                        .find(|t| &t.monomial == b)
-                        .map_or_else(F::zero, |t| t.coefficient.clone())
+                        .find(|t| &t.0 == b)
+                        .map_or_else(F::zero, |t| t.1.clone())
                 })
                 .collect();
             matrix.push(column);

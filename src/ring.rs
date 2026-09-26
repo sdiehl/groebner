@@ -19,10 +19,10 @@
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 
-use crate::field::Field;
+use crate::Field;
 use crate::finite_field::{PrimeField, Zp};
 use crate::monomial::{Monomial, MonomialOrder};
-use crate::polynomial::{Polynomial, Term};
+use crate::polynomial::Polynomial;
 use crate::rational_function::RationalFunction;
 use num_rational::BigRational;
 use std::collections::HashMap;
@@ -203,12 +203,56 @@ impl<F> PolynomialRing<F> {
 impl<F: ParseCoefficient> PolynomialRing<F> {
     pub fn parse(&self, input: &str) -> Result<Polynomial<F>, ParsePolynomialError> {
         let tokens = Lexer::new(input).tokenize()?;
-        let mut parser = ParserFor::new(tokens, self);
-        let polynomial = parser.parse_polynomial()?;
-        if let Some(token) = parser.peek() {
-            return Err(ParsePolynomialError::TrailingInput(token.to_string()));
+        // Retain the legacy grouped-number and implicit-product syntax while delegating
+        // expression parsing and expansion to polycore.
+        let mut source = String::new();
+        let mut previous: Option<&Token> = None;
+        for token in &tokens {
+            if let Token::Ident(name) = token
+                && !self.variable_indices.contains_key(name)
+                && (self.parameter.as_ref() != Some(name) || F::parameter_power(1).is_none())
+            {
+                return Err(ParsePolynomialError::UnknownVariable(name.clone()));
+            }
+            let ends = matches!(
+                previous,
+                Some(Token::Number(_) | Token::Ident(_) | Token::Close)
+            );
+            let starts = matches!(token, Token::Number(_) | Token::Ident(_) | Token::Open);
+            if ends && starts {
+                source.push('*');
+            }
+            if matches!(token, Token::Plus) && matches!(previous, None | Some(Token::Open)) {
+                previous = Some(token);
+                continue;
+            }
+            source.push_str(&token.to_string());
+            previous = Some(token);
         }
-        Ok(polynomial)
+        let core = polycore::Ring::try_new(self.variables.clone(), self.order.clone())
+            .map_err(|e| ParsePolynomialError::TrailingInput(e.to_string()))?;
+        // Validate the coefficient context before the infallible integer-lifting callback.
+        F::parse_coefficient("1", None, self.modulus)?;
+        let error = std::cell::RefCell::new(None);
+        let lift = |n: num_bigint::BigInt| {
+            F::parse_coefficient(&n.to_string(), None, self.modulus).unwrap_or_else(|e| {
+                *error.borrow_mut() = Some(e);
+                F::zero()
+            })
+        };
+        let params = self
+            .parameter
+            .as_deref()
+            .and_then(|name| F::parameter_power(1).map(|value| (name, value)))
+            .into_iter()
+            .collect::<Vec<_>>();
+        let result = core.parse_with(&source, &lift, &params);
+        if let Some(e) = error.into_inner() {
+            return Err(e);
+        }
+        result
+            .map(|p| p.map(|c| c.clone().bind_modulus(self.modulus)))
+            .map_err(|e| ParsePolynomialError::TrailingInput(e.to_string()))
     }
 
     pub fn parse_many(&self, input: &str) -> Result<Vec<Polynomial<F>>, ParsePolynomialError> {
@@ -234,10 +278,10 @@ impl<F: ParseCoefficient> PolynomialRing<F> {
 
         let mut output = String::new();
         for term in &polynomial.terms {
-            let coeff = term.coefficient.format_coefficient(self.parameter_name());
+            let coeff = term.1.format_coefficient(self.parameter_name());
             let is_negative = coeff.starts_with('-');
             let abs_coeff = if is_negative { &coeff[1..] } else { &coeff };
-            let monomial = self.format_monomial(&term.monomial)?;
+            let monomial = self.format_monomial(&term.0)?;
             let term_body = if monomial == "1" {
                 abs_coeff.to_string()
             } else if abs_coeff == "1" {
@@ -277,12 +321,12 @@ impl<F: ParseCoefficient> PolynomialRing<F> {
         let mut output = String::new();
         for term in &polynomial.terms {
             let coeff = term
-                .coefficient
+                .1
                 .format_coefficient_latex(&latex_variable(self.parameter_name()));
             let is_negative = coeff.starts_with('-');
             let coeff_latex = if is_negative { &coeff[1..] } else { &coeff }.to_string();
             let abs_coeff = coeff_latex.as_str();
-            let monomial = self.format_monomial_latex(&term.monomial)?;
+            let monomial = self.format_monomial_latex(&term.0)?;
             let term_body = if monomial == "1" {
                 coeff_latex
             } else if abs_coeff == "1" {
@@ -317,7 +361,7 @@ impl<F: ParseCoefficient> PolynomialRing<F> {
         }
 
         let mut factors = Vec::new();
-        for (variable, exponent) in self.variables.iter().zip(monomial.exponents.iter()) {
+        for (variable, exponent) in self.variables.iter().zip(monomial.exps().iter()) {
             match exponent {
                 0 => {}
                 1 => factors.push(variable.clone()),
@@ -344,7 +388,7 @@ impl<F: ParseCoefficient> PolynomialRing<F> {
         }
 
         let mut factors = Vec::new();
-        for (variable, exponent) in self.variables.iter().zip(monomial.exponents.iter()) {
+        for (variable, exponent) in self.variables.iter().zip(monomial.exps().iter()) {
             match exponent {
                 0 => {}
                 1 => factors.push(latex_variable(variable)),
@@ -391,6 +435,8 @@ enum Token {
     Star,
     Slash,
     Caret,
+    Open,
+    Close,
     Number(String),
     Ident(String),
 }
@@ -403,6 +449,8 @@ impl fmt::Display for Token {
             Token::Star => write!(f, "*"),
             Token::Slash => write!(f, "/"),
             Token::Caret => write!(f, "^"),
+            Token::Open => write!(f, "("),
+            Token::Close => write!(f, ")"),
             Token::Number(number) => write!(f, "{number}"),
             Token::Ident(ident) => write!(f, "{ident}"),
         }
@@ -448,6 +496,14 @@ impl<'a> Lexer<'a> {
                 '^' => {
                     self.index += 1;
                     tokens.push(Token::Caret);
+                }
+                '(' => {
+                    self.index += 1;
+                    tokens.push(Token::Open);
+                }
+                ')' => {
+                    self.index += 1;
+                    tokens.push(Token::Close);
                 }
                 ',' | ';' => {
                     return Err(ParsePolynomialError::TrailingInput(
@@ -513,177 +569,8 @@ impl<'a> Lexer<'a> {
     }
 }
 
-struct ParserFor<'a, F> {
-    tokens: Vec<Token>,
-    index: usize,
-    ring: &'a PolynomialRing<F>,
-}
-
-impl<'a, F: ParseCoefficient> ParserFor<'a, F> {
-    fn new(tokens: Vec<Token>, ring: &'a PolynomialRing<F>) -> Self {
-        Self {
-            tokens,
-            index: 0,
-            ring,
-        }
-    }
-
-    fn parse_polynomial(&mut self) -> Result<Polynomial<F>, ParsePolynomialError> {
-        let mut terms = Vec::new();
-        let mut saw_term = false;
-
-        while self.peek().is_some() {
-            let sign = self.parse_sign();
-            if self.peek().is_none() {
-                return Err(ParsePolynomialError::ExpectedTerm);
-            }
-            terms.push(self.parse_term(sign)?);
-            saw_term = true;
-
-            if !matches!(self.peek(), Some(Token::Plus | Token::Minus) | None) {
-                return Err(ParsePolynomialError::TrailingInput(
-                    self.peek()
-                        .map(ToString::to_string)
-                        .unwrap_or_else(|| String::from("<end>")),
-                ));
-            }
-        }
-
-        if !saw_term {
-            return Err(ParsePolynomialError::ExpectedTerm);
-        }
-
-        Ok(Polynomial::new(
-            terms,
-            self.ring.variables.len(),
-            self.ring.order.clone(),
-        ))
-    }
-
-    fn parse_sign(&mut self) -> i32 {
-        match self.peek() {
-            Some(Token::Plus) => {
-                self.index += 1;
-                1
-            }
-            Some(Token::Minus) => {
-                self.index += 1;
-                -1
-            }
-            _ => 1,
-        }
-    }
-
-    fn parse_term(&mut self, sign: i32) -> Result<Term<F>, ParsePolynomialError> {
-        let mut coefficient = if sign < 0 { F::minus_one() } else { F::one() };
-        let mut exponents = vec![0u32; self.ring.variables.len()];
-        let mut saw_factor = false;
-        let mut require_factor = false;
-
-        while let Some(token) = self.peek().cloned() {
-            match token {
-                Token::Star => {
-                    if !saw_factor || require_factor {
-                        return Err(ParsePolynomialError::ExpectedFactor);
-                    }
-                    self.index += 1;
-                    require_factor = true;
-                }
-                Token::Number(number) => {
-                    self.index += 1;
-                    let factor = self.parse_coefficient(&number)?;
-                    coefficient = coefficient.multiply(&factor);
-                    saw_factor = true;
-                    require_factor = false;
-                }
-                Token::Ident(variable) if self.ring.parameter.as_ref() == Some(&variable) => {
-                    self.index += 1;
-                    let exponent = self.parse_optional_exponent()?;
-                    let factor = F::parameter_power(exponent)
-                        .ok_or(ParsePolynomialError::UnknownVariable(variable))?;
-                    coefficient = coefficient.multiply(&factor);
-                    saw_factor = true;
-                    require_factor = false;
-                }
-                Token::Ident(variable) => {
-                    self.index += 1;
-                    let index = self
-                        .ring
-                        .variable_indices
-                        .get(&variable)
-                        .copied()
-                        .ok_or(ParsePolynomialError::UnknownVariable(variable))?;
-                    let exponent = self.parse_optional_exponent()?;
-                    exponents[index] = exponents[index].checked_add(exponent).ok_or_else(|| {
-                        ParsePolynomialError::InvalidExponent(exponent.to_string())
-                    })?;
-                    saw_factor = true;
-                    require_factor = false;
-                }
-                Token::Plus | Token::Minus | Token::Slash | Token::Caret => break,
-            }
-        }
-
-        if require_factor {
-            return Err(ParsePolynomialError::ExpectedFactor);
-        }
-        if !saw_factor {
-            return Err(ParsePolynomialError::ExpectedTerm);
-        }
-
-        Ok(Term::new(
-            coefficient.bind_modulus(self.ring.modulus),
-            Monomial::new(exponents),
-        ))
-    }
-
-    fn parse_coefficient(&mut self, numerator: &str) -> Result<F, ParsePolynomialError> {
-        let denominator = if matches!(self.peek(), Some(Token::Slash)) {
-            self.index += 1;
-            let denominator = match self.peek().cloned() {
-                Some(Token::Number(number)) => {
-                    self.index += 1;
-                    number
-                }
-                _ => return Err(ParsePolynomialError::ExpectedDenominator),
-            };
-            if denominator == "0" {
-                return Err(ParsePolynomialError::DivisionByZero);
-            }
-            Some(denominator)
-        } else {
-            None
-        };
-
-        F::parse_coefficient(numerator, denominator.as_deref(), self.ring.modulus)
-    }
-
-    fn parse_optional_exponent(&mut self) -> Result<u32, ParsePolynomialError> {
-        if !matches!(self.peek(), Some(Token::Caret)) {
-            return Ok(1);
-        }
-
-        self.index += 1;
-        let exponent = match self.peek().cloned() {
-            Some(Token::Number(number)) => {
-                self.index += 1;
-                number
-            }
-            _ => return Err(ParsePolynomialError::ExpectedExponent),
-        };
-
-        exponent
-            .parse::<u32>()
-            .map_err(|_| ParsePolynomialError::InvalidExponent(exponent))
-    }
-
-    fn peek(&self) -> Option<&Token> {
-        self.tokens.get(self.index)
-    }
-}
-
 /// Coefficient parsing and printing for [`PolynomialRing`]; implement for custom fields.
-pub trait ParseCoefficient: Field {
+pub trait ParseCoefficient: Field + fmt::Display {
     /// The ring parameter raised to `exponent`, for fields with a parameter.
     fn parameter_power(_exponent: u32) -> Option<Self> {
         None
@@ -703,7 +590,7 @@ pub trait ParseCoefficient: Field {
     }
 
     fn minus_one() -> Self {
-        Self::one().negate()
+        -Self::one()
     }
 
     fn bind_modulus(self, _modulus: Option<u64>) -> Self {
@@ -742,17 +629,18 @@ fn modular_quotient<F: Field>(
     let inverse = denominator?
         .inverse()
         .ok_or(ParsePolynomialError::DivisionByZero)?;
-    Ok(numerator.multiply(&inverse))
+    Ok(numerator * inverse)
 }
 
-impl<const P: u32> ParseCoefficient for PrimeField<P> {
+impl<const P: u64> ParseCoefficient for PrimeField<P> {
     fn parse_coefficient(
         numerator: &str,
         denominator: Option<&str>,
         _modulus: Option<u64>,
     ) -> Result<Self, ParsePolynomialError> {
         let parse = |digits: &str| {
-            PrimeField::<P>::parse_digits(digits)
+            parse_digits(digits, P)
+                .map(PrimeField::<P>::new)
                 .map_err(|_| ParsePolynomialError::InvalidNumber(digits.to_string()))
         };
         modular_quotient(parse(numerator)?, denominator.map(parse))
@@ -771,7 +659,8 @@ impl ParseCoefficient for Zp {
     ) -> Result<Self, ParsePolynomialError> {
         let modulus = modulus.ok_or(ParsePolynomialError::MissingModulus)?;
         let parse = |digits: &str| {
-            Zp::parse_digits(digits, modulus)
+            parse_digits(digits, modulus)
+                .map(|v| Zp::new(v, modulus))
                 .map_err(|_| ParsePolynomialError::InvalidNumber(digits.to_string()))
         };
         modular_quotient(parse(numerator)?, denominator.map(parse))
@@ -806,4 +695,16 @@ fn is_ident_start(c: char) -> bool {
 
 fn is_ident_continue(c: char) -> bool {
     c.is_ascii_alphanumeric() || c == '_'
+}
+
+fn parse_digits(digits: &str, p: u64) -> Result<u64, ()> {
+    if p < 2 || digits.is_empty() {
+        return Err(());
+    }
+    digits.bytes().try_fold(0u64, |v, c| {
+        if !c.is_ascii_digit() {
+            return Err(());
+        }
+        Ok(((u128::from(v) * 10 + u128::from(c - b'0')) % u128::from(p)) as u64)
+    })
 }

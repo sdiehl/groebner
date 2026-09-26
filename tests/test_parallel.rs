@@ -1,5 +1,6 @@
 #![cfg(feature = "parallel")]
 
+use groebner::PolynomialExt;
 use groebner::{
     MonomialOrder, Polynomial, PolynomialRing, groebner_basis, groebner_basis_parallel,
     is_groebner_basis, is_groebner_basis_parallel,
@@ -13,7 +14,7 @@ where
     let mut signature = basis
         .iter()
         .filter_map(|polynomial| polynomial.leading_monomial())
-        .map(|monomial| monomial.exponents.to_vec())
+        .map(|monomial| monomial.exps().to_vec())
         .collect::<Vec<_>>();
     signature.sort();
     signature

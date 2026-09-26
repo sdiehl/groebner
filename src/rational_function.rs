@@ -11,11 +11,12 @@
 //! ```
 
 use crate::f4::F4Field;
-use crate::field::Field;
-use crate::polynomial::{Polynomial, Term};
+use crate::polynomial::Polynomial;
+use crate::polynomial::term;
 use num_rational::BigRational;
-use num_traits::Signed;
+use num_traits::{One, Signed, Zero};
 use std::fmt;
+use std::ops::{Add, Div, Mul, Neg, Sub};
 
 type Poly = Vec<BigRational>;
 
@@ -152,12 +153,7 @@ pub fn specialize(
     let terms = polynomial
         .terms
         .iter()
-        .map(|t| {
-            Some(Term::new(
-                t.coefficient.evaluate(value)?,
-                t.monomial.clone(),
-            ))
-        })
+        .map(|t| Some(term(t.1.evaluate(value)?, t.0.clone())))
         .collect::<Option<Vec<_>>>()?;
     Some(Polynomial::new(
         terms,
@@ -166,28 +162,33 @@ pub fn specialize(
     ))
 }
 
-impl Field for RationalFunction {
+impl Zero for RationalFunction {
     fn zero() -> Self {
         Self {
             numerator: Vec::new(),
             denominator: vec![BigRational::one()],
         }
     }
-    fn one() -> Self {
-        Self::constant(BigRational::one())
-    }
     fn is_zero(&self) -> bool {
         self.numerator.is_empty()
+    }
+}
+impl One for RationalFunction {
+    fn one() -> Self {
+        Self::constant(BigRational::one())
     }
     fn is_one(&self) -> bool {
         self.denominator.len() == 1 && self.numerator.len() == 1 && self.numerator[0].is_one()
     }
-    fn add(&self, other: &Self) -> Self {
+}
+impl Add for RationalFunction {
+    type Output = Self;
+    fn add(self, other: Self) -> Self {
         if self.is_zero() {
-            return other.clone();
+            return other;
         }
         if other.is_zero() {
-            return self.clone();
+            return self;
         }
         let (numerator, denominator) = if self.denominator == other.denominator {
             (
@@ -205,10 +206,16 @@ impl Field for RationalFunction {
         };
         Self::new(numerator, denominator).unwrap_or_else(Self::zero)
     }
-    fn subtract(&self, other: &Self) -> Self {
-        self.add(&other.negate())
+}
+impl Sub for RationalFunction {
+    type Output = Self;
+    fn sub(self, other: Self) -> Self {
+        self + -other
     }
-    fn multiply(&self, other: &Self) -> Self {
+}
+impl Mul for RationalFunction {
+    type Output = Self;
+    fn mul(self, other: Self) -> Self {
         if self.is_zero() || other.is_zero() {
             return Self::zero();
         }
@@ -218,18 +225,25 @@ impl Field for RationalFunction {
         )
         .unwrap_or_else(Self::zero)
     }
-    fn negate(&self) -> Self {
+}
+impl Neg for RationalFunction {
+    type Output = Self;
+    fn neg(self) -> Self {
         Self {
             numerator: negated(&self.numerator),
             denominator: self.denominator.clone(),
         }
     }
-    fn inverse(&self) -> Option<Self> {
-        let lead = self.numerator.last()?.recip();
-        Some(Self {
-            numerator: scale(&self.denominator, &lead),
-            denominator: scale(&self.numerator, &lead),
-        })
+}
+impl Div for RationalFunction {
+    type Output = Self;
+    fn div(self, other: Self) -> Self {
+        assert!(!other.is_zero(), "division by zero in Q(a)");
+        Self::new(
+            product(&self.numerator, &other.denominator),
+            product(&self.denominator, &other.numerator),
+        )
+        .unwrap_or_else(|| unreachable!("nonzero denominator"))
     }
 }
 
@@ -242,7 +256,7 @@ impl fmt::Display for RationalFunction {
 }
 
 fn trimmed(mut p: Poly) -> Poly {
-    while p.last().is_some_and(Field::is_zero) {
+    while p.last().is_some_and(num_traits::Zero::is_zero) {
         p.pop();
     }
     p

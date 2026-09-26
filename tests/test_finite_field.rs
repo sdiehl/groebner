@@ -8,14 +8,10 @@ fn prime_field_arithmetic_reduces_modulo_p() {
     let b = F32003::from(7u32);
 
     assert_eq!(a.value(), 2);
-    assert_eq!(a.add(&b).value(), 9);
-    assert_eq!(a.subtract(&b).value(), 31998);
-    assert_eq!(a.multiply(&b).value(), 14);
-    assert_eq!(
-        b.multiply(&b.inverse().expect("nonzero has inverse"))
-            .value(),
-        1
-    );
+    assert_eq!((a + b).value(), 9);
+    assert_eq!((a - b).value(), 31998);
+    assert_eq!((a * b).value(), 14);
+    assert_eq!((b * b.inverse().expect("nonzero has inverse")).value(), 1);
 }
 
 #[test]

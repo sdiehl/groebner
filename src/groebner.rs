@@ -16,11 +16,12 @@
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 
-use crate::field::Field;
+use crate::Field;
 use crate::grebauer_moller;
 use crate::monomial::Monomial;
 use crate::polynomial::Polynomial;
 use crate::sugar::{SugaredPolynomial, select_next_by_sugar};
+use crate::{MonomialExt, PolynomialExt};
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 use std::cmp::Ordering;
@@ -36,6 +37,7 @@ pub enum GroebnerError {
     OrderMismatch,
     NotZeroDimensional,
     NoModulus,
+    ReconstructionFailed,
 }
 
 impl From<crate::polynomial::PolynomialError> for GroebnerError {
@@ -64,6 +66,9 @@ impl fmt::Display for GroebnerError {
             }
             GroebnerError::NotZeroDimensional => {
                 write!(f, "ideal is not zero-dimensional")
+            }
+            GroebnerError::ReconstructionFailed => {
+                write!(f, "modular reconstruction or certification failed")
             }
             GroebnerError::NoModulus => write!(f, "no modulus found in coefficients"),
         }
@@ -157,7 +162,7 @@ pub fn groebner_basis_parallel<F: Field + Send + Sync>(
         new_polynomials.dedup_by(|a, b| a.leading_monomial() == b.leading_monomial());
 
         for polynomial in new_polynomials {
-            let reduced = polynomial.reduce(&basis)?;
+            let reduced = polynomial.normal_form(&basis)?;
             if reduced.is_zero() {
                 continue;
             }
@@ -189,7 +194,7 @@ pub fn groebner_basis_incremental<F: Field>(
         let reduced = if combined.is_empty() {
             polynomial
         } else {
-            polynomial.reduce(&combined)?
+            polynomial.normal_form(&combined)?
         };
         if !reduced.is_zero() {
             combined.push(reduced);
@@ -262,7 +267,7 @@ pub fn groebner_basis_with_strategy<F: Field>(
                 }
             }
         };
-        let reduced = s_poly.reduce(&basis)?;
+        let reduced = s_poly.normal_form(&basis)?;
         if reduced.is_zero() {
             continue;
         }
@@ -380,13 +385,8 @@ pub(crate) fn finish_basis<F: Field>(
         .ok_or(GroebnerError::EmptyInput)?;
     let mut reduced = Vec::with_capacity(basis.len());
     for i in 0..basis.len() {
-        let others: Vec<_> = basis
-            .iter()
-            .enumerate()
-            .filter(|(j, _)| *j != i)
-            .map(|(_, p)| p.clone())
-            .collect();
-        let r = basis[i].reduce(&others)?.make_monic();
+        let others = basis.iter().enumerate().filter(|(j, _)| *j != i);
+        let r = crate::polynomial::divide_by(&basis[i], others, |_, _, _| {})?.make_monic();
         if !r.is_zero() {
             reduced.push(r);
         }
@@ -426,7 +426,7 @@ fn reduce_pair_against_basis<F: Field>(
     let Some(s_poly) = pair_s_polynomial(pair, basis)? else {
         return Ok(None);
     };
-    let reduced = s_poly.reduce(basis)?;
+    let reduced = s_poly.normal_form(basis)?;
     Ok((!reduced.is_zero()).then(|| reduced.make_monic()))
 }
 
@@ -434,7 +434,7 @@ fn reduce_pair_against_basis<F: Field>(
 pub fn is_groebner_basis<F: Field>(basis: &[Polynomial<F>]) -> Result<bool, GroebnerError> {
     for i in 0..basis.len() {
         for j in i + 1..basis.len() {
-            let reduced = basis[i].s_polynomial(&basis[j])?.reduce(basis)?;
+            let reduced = basis[i].s_polynomial(&basis[j])?.normal_form(basis)?;
             if !reduced.is_zero() {
                 return Ok(false);
             }
@@ -454,7 +454,7 @@ pub fn is_groebner_basis_parallel<F: Field + Send + Sync>(
     let checks = pairs
         .par_iter()
         .map(|&(i, j)| {
-            let reduced = basis[i].s_polynomial(&basis[j])?.reduce(basis)?;
+            let reduced = basis[i].s_polynomial(&basis[j])?.normal_form(basis)?;
             Ok(reduced.is_zero())
         })
         .collect::<Result<Vec<_>, GroebnerError>>()?;

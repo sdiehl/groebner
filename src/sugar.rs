@@ -42,13 +42,7 @@ impl<P: PartialEq + Eq> PartialOrd for SugaredPolynomial<P> {
 fn total_degree<P>(poly: &Polynomial<P>) -> usize {
     poly.terms
         .iter()
-        .map(|t| {
-            t.monomial
-                .exponents
-                .iter()
-                .map(|&e| e as usize)
-                .sum::<usize>()
-        })
+        .map(|t| t.0.exps().iter().map(|&e| e as usize).sum::<usize>())
         .max()
         .unwrap_or(0)
 }

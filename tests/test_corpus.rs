@@ -59,3 +59,24 @@ fn corpus_f4_rational() {
 fn corpus_buchberger_zp() {
     smoke(Field::Zp, Algorithm::Buchberger);
 }
+
+#[test]
+fn fingerprint_omits_terms_vanishing_at_reference_prime() {
+    let ring = groebner::PolynomialRing::<num_rational::BigRational>::new(
+        ["x", "y"],
+        groebner::MonomialOrder::Lex,
+    )
+    .unwrap();
+    let rational = ring.parse_many("x + 32003*y + 1").unwrap();
+    let modular = rational
+        .iter()
+        .map(|p| {
+            p.try_map(|c| groebner::Fp::from_rational(c, 32003))
+                .unwrap()
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        corpus::fingerprint(&rational, |c| polycore::crt::reduce(c, 32003)),
+        corpus::fingerprint(&modular, |c| Some(c.value()))
+    );
+}

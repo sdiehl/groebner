@@ -1,10 +1,12 @@
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
+use groebner::PolynomialExt;
 use groebner::{
-    F4Field, Field, Ideal, LiftBasis, MonomialOrder, ParseCoefficient, Polynomial, PolynomialRing,
+    F4Field, Ideal, LiftBasis, MonomialOrder, ParseCoefficient, Polynomial, PolynomialRing,
     PrimeField, groebner_basis, verify_lift,
 };
 use num_rational::BigRational;
+use num_traits::One;
 
 type Zp = PrimeField<32003>;
 
@@ -145,8 +147,8 @@ fn division_identity() {
     let r = ring::<BigRational>(&["x", "y", "z"], MonomialOrder::GrLex);
     let divisors = r.parse_many("x*y - z; 2*y^2 + x; 0; z^2 - 1").unwrap();
     let f = r.parse("x^3*y^2 + 3*x*y*z^3 - y^4 + 7").unwrap();
-    let (quotients, remainder) = f.divide(&divisors).unwrap();
-    assert_eq!(remainder, f.reduce(&divisors).unwrap());
+    let (quotients, remainder) = f.divide_with_remainder(&divisors).unwrap();
+    assert_eq!(remainder, f.normal_form(&divisors).unwrap());
     assert!(quotients[2].is_zero());
     let sum = quotients
         .iter()

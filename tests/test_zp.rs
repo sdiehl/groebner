@@ -4,15 +4,16 @@ use groebner::{
     Field, MonomialOrder, PolynomialRing, PrimeField, Zp, groebner_basis, groebner_basis_f4,
     is_groebner_basis,
 };
+use num_traits::One;
 
 const P64: u64 = 18_446_744_073_709_551_557;
 
 #[test]
 fn arithmetic_with_large_modulus() {
     let a = Zp::new(P64 - 1, P64);
-    assert_eq!(a.multiply(&a), Zp::new(1, P64));
-    assert_eq!(a.add(&Zp::one()), Zp::new(0, P64));
-    assert_eq!(a.multiply(&a.inverse().unwrap()), Zp::one());
+    assert_eq!((a * a), Zp::new(1, P64));
+    assert_eq!((a + Zp::one()), Zp::new(0, P64));
+    assert_eq!((a * a.inverse().unwrap()), Zp::one());
     assert_eq!(Zp::from_i64(-3, 7), Zp::new(4, 7));
 }
 
@@ -20,8 +21,8 @@ fn arithmetic_with_large_modulus() {
 fn placeholders_adopt_modulus() {
     let one = Zp::one();
     assert_eq!(one.modulus(), 0);
-    assert_eq!(one.negate().add(&Zp::new(2, 7)), Zp::new(1, 7));
-    assert_eq!(one.negate().bind(7), Zp::new(6, 7));
+    assert_eq!((-one + Zp::new(2, 7)), Zp::new(1, 7));
+    assert_eq!((-one).bind(7), Zp::new(6, 7));
 }
 
 #[test]

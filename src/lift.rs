@@ -12,10 +12,11 @@
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 
-use crate::field::Field;
+use crate::Field;
 use crate::groebner::{CriticalPair, GroebnerError, compare_leading, minimal_mask};
 use crate::monomial::Monomial;
 use crate::polynomial::{Polynomial, PolynomialError};
+use crate::{MonomialExt, PolynomialExt};
 use std::collections::BinaryHeap;
 
 type Row<F> = Vec<Polynomial<F>>;
@@ -111,7 +112,9 @@ impl<F: Field> LiftBasis<F> {
         let (Some(g), Some(row)) = (self.basis.first(), self.cofactors.first()) else {
             return Err(GroebnerError::EmptyInput);
         };
-        let (quotients, remainder) = f.reorder(g.order.clone()).divide(&self.basis)?;
+        let (quotients, remainder) = f
+            .reorder(g.order.clone())
+            .divide_with_remainder(&self.basis)?;
         if !remainder.is_zero() {
             return Ok(None);
         }
@@ -120,7 +123,7 @@ impl<F: Field> LiftBasis<F> {
             zeros,
             &quotients,
             &self.cofactors,
-            &F::one().negate(),
+            &(-F::one()),
         )))
     }
 }
@@ -165,10 +168,10 @@ fn subtract_combination<F: Field>(
 ) -> Row<F> {
     for (q, row) in quotients.iter().zip(rows) {
         for t in &q.terms {
-            let c = t.coefficient.multiply(sign);
+            let c = t.1.clone() * sign.clone();
             for (a, r) in acc.iter_mut().zip(row) {
                 if !r.is_zero() {
-                    *a = a.subtract_multiple(&c, &t.monomial, r);
+                    *a = a.subtract_multiple(&c, &t.0, r);
                 }
             }
         }
@@ -182,7 +185,7 @@ fn reduce_tracked<F: Field>(
     basis: &[Polynomial<F>],
     rows: &[Row<F>],
 ) -> Result<(Polynomial<F>, Row<F>), PolynomialError> {
-    let (quotients, r) = p.divide(basis)?;
+    let (quotients, r) = p.divide_with_remainder(basis)?;
     Ok(monic(
         r,
         subtract_combination(row, &quotients, rows, &F::one()),

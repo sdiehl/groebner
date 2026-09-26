@@ -63,12 +63,3 @@ fn f4_matches_buchberger_for_cyclic4_grlex() {
         ],
     );
 }
-
-#[test]
-#[allow(deprecated)]
-fn f4_rejects_mismatched_runtime_prime() {
-    let ring = ring(&["x", "y"], MonomialOrder::Lex);
-    let polynomials = parse_system(&ring, &["x^2 - y", "x*y - 1"]);
-
-    assert!(groebner::groebner_basis_f4_mod(polynomials, 17, MonomialOrder::Lex).is_err());
-}

@@ -1,6 +1,6 @@
 [package]
 name = "groebner"
-version = "0.3.1"
+version = "0.4.0"
 authors = ["Stephen Diehl"]
 categories = ["science", "mathematics"]
 documentation = "https://docs.rs/groebner"
@@ -16,6 +16,7 @@ include = [
   "!tests/corpus/**",
   "benches/**/*",
   "README.md",
+  "CHANGELOG.md",
   "LICENSE",
   "Cargo.toml",
 ]
@@ -31,6 +32,8 @@ name = "groebner"
 path = "src/lib.rs"
 
 [dependencies]
+num-bigint = "0.4"
+polycore = { git = "https://github.com/sdiehl/poly-core", rev = "0794a588cacc9bf673f929b34dd25f0cc8ba1214", version = "0.1.0" }
 num-rational = "0.4"
 num-traits = "0.2"
 rayon = { version = "1.10", optional = true }
@@ -41,7 +44,6 @@ parallel = ["dep:rayon"]
 
 [dev-dependencies]
 criterion = "0.8"
-num-bigint = "0.4"
 
 [[example]]
 name = "basic"

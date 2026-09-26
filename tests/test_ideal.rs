@@ -93,7 +93,7 @@ fn change_order_over_rationals() {
     let univariate = lex
         .basis()
         .iter()
-        .find(|p| p.terms.iter().all(|t| t.monomial.exponents()[0] == 0))
+        .find(|p| p.terms.iter().all(|t| t.0.exps()[0] == 0))
         .expect("lex basis has a univariate polynomial in y");
     assert_eq!(r.format(univariate).unwrap(), "y^6 + y^2 - 1");
 }

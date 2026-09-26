@@ -7,14 +7,16 @@
 //! let polys = ring.parse_many("x^2 + y^2 - 1; x - y^3")?;
 //! let grevlex = groebner_basis_f4(polys, true)?;
 //! let lex = fglm(&grevlex, &MonomialOrder::Lex)?;
-//! assert!(lex.iter().any(|p| p.terms.iter().all(|t| t.monomial.exponents()[0] == 0)));
+//! assert!(lex.iter().any(|p| p.terms.iter().all(|t| t.0.exps()[0] == 0)));
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 
-use crate::field::Field;
+use crate::Field;
 use crate::groebner::{GroebnerError, compare_leading};
 use crate::monomial::{Monomial, MonomialOrder};
-use crate::polynomial::{Polynomial, Term};
+use crate::polynomial::Polynomial;
+use crate::polynomial::term;
+use crate::{MonomialExt, PolynomialExt};
 use std::cmp::Ordering;
 use std::collections::{BinaryHeap, HashMap, HashSet};
 
@@ -31,12 +33,9 @@ pub fn is_zero_dimensional<F: Field>(basis: &[Polynomial<F>]) -> bool {
         return true;
     }
     (0..nvars).all(|i| {
-        leads.iter().any(|m| {
-            m.exponents()
-                .iter()
-                .enumerate()
-                .all(|(j, e)| j == i || *e == 0)
-        })
+        leads
+            .iter()
+            .any(|m| m.exps().iter().enumerate().all(|(j, e)| j == i || *e == 0))
     })
 }
 
@@ -119,11 +118,11 @@ pub fn fglm<F: Field>(
         let mut vector = vec![F::zero(); index.len()];
         for t in &nf.terms {
             let next = index.len();
-            let k = *index.entry(t.monomial.clone()).or_insert(next);
+            let k = *index.entry(t.0.clone()).or_insert(next);
             if k >= vector.len() {
                 vector.resize(k + 1, F::zero());
             }
-            vector[k] = t.coefficient.clone();
+            vector[k] = t.1.clone();
         }
         let mut combination = vec![F::zero(); staircase.len() + 1];
         combination[staircase.len()] = F::one();
@@ -136,17 +135,17 @@ pub fn fglm<F: Field>(
             }
             let c = vector[pivot].clone();
             for (k, v) in row.iter().enumerate() {
-                vector[k] = vector[k].subtract(&c.multiply(v));
+                vector[k] = vector[k].clone() - c.clone() * v.clone();
             }
             for (k, v) in row_combination.iter().enumerate() {
-                combination[k] = combination[k].subtract(&c.multiply(v));
+                combination[k] = combination[k].clone() - c.clone() * v.clone();
             }
         }
-        if vector.iter().all(Field::is_zero) {
-            let mut terms = vec![Term::new(F::one(), m.clone())];
+        if vector.iter().all(num_traits::Zero::is_zero) {
+            let mut terms = vec![term(F::one(), m.clone())];
             for (k, (b, _)) in staircase.iter().enumerate() {
                 if !combination[k].is_zero() {
-                    terms.push(Term::new(combination[k].clone(), b.clone()));
+                    terms.push(term(combination[k].clone(), b.clone()));
                 }
             }
             result.push(Polynomial::new(terms, nvars, target.clone()));
@@ -158,8 +157,11 @@ pub fn fglm<F: Field>(
             let inv = vector[pivot]
                 .inverse()
                 .ok_or(crate::polynomial::PolynomialError::DivisionByZero)?;
-            let vector: Vec<F> = vector.iter().map(|v| v.multiply(&inv)).collect();
-            let combination: Vec<F> = combination.iter().map(|v| v.multiply(&inv)).collect();
+            let vector: Vec<F> = vector.iter().map(|v| v.clone() * inv.clone()).collect();
+            let combination: Vec<F> = combination
+                .iter()
+                .map(|v| v.clone() * inv.clone())
+                .collect();
             rows.push((vector, combination));
             for i in 0..nvars {
                 queue.push(Ordered {
@@ -184,8 +186,8 @@ fn normal_form_of<F: Field>(
         if let Some(q) = m.divide(b)
             && q.degree() == 1
         {
-            return Ok(nf.multiply_monomial(&q).reduce(basis)?);
+            return Ok(nf.multiply_monomial(&q).normal_form(basis)?);
         }
     }
-    Ok(Polynomial::monomial(m.clone(), order).reduce(basis)?)
+    Ok(Polynomial::monomial(m.clone(), order).normal_form(basis)?)
 }

@@ -3,6 +3,7 @@ use groebner::{
     RationalFunction, groebner_basis, groebner_basis_f4, is_groebner_basis, specialize,
 };
 use num_rational::BigRational;
+use num_traits::{One, Zero};
 
 type Result = std::result::Result<(), Box<dyn std::error::Error>>;
 
@@ -37,7 +38,7 @@ fn arithmetic_is_in_lowest_terms() {
     let a = RationalFunction::parameter();
     let one = RationalFunction::one();
     let quotient = rf(&[-1, 0, 1], &[-1, 1]);
-    assert_eq!(quotient, a.add(&one));
+    assert_eq!(quotient, (a + one));
     assert_eq!(
         rf(&[2, 2], &[4, 4]),
         RationalFunction::constant(q(1) / q(2))
@@ -45,11 +46,8 @@ fn arithmetic_is_in_lowest_terms() {
     assert!(RationalFunction::new(vec![q(1)], vec![]).is_none());
 
     let f = rf(&[1], &[1, 1]);
-    assert!(
-        f.multiply(&f.inverse().unwrap_or_else(RationalFunction::zero))
-            .is_one()
-    );
-    assert!(f.subtract(&f).is_zero());
+    assert!((f.clone() * f.inverse().unwrap_or_else(RationalFunction::zero)).is_one());
+    assert!((f.clone() - f.clone()).is_zero());
     assert_eq!(f.evaluate(&q(1)), Some(q(1) / q(2)));
     assert_eq!(f.evaluate(&q(-1)), None);
 }

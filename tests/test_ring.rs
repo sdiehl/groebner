@@ -90,3 +90,23 @@ fn formats_latex_with_named_variables_and_fractions() {
         "\\frac{3}{2} x_{0}^{2} y - y + \\frac{1}{3}"
     );
 }
+
+#[test]
+fn parses_parentheses_powers_and_constant_division() {
+    let ring = PolynomialRing::<BigRational>::new(["x", "y"], MonomialOrder::Lex).unwrap();
+    assert_eq!(
+        ring.parse("(x + y)^2 / (2 + 1) - (x-y)(x+y)").unwrap(),
+        ring.parse("-2/3*x^2 + 2/3*x*y + 4/3*y^2").unwrap()
+    );
+    for bad in ["x/(y+1)", "x/(1-1)", "(x+y", "x^", "x**y"] {
+        assert!(ring.parse(bad).is_err(), "{bad}");
+    }
+}
+
+#[test]
+fn polycore_polynomials_work_without_conversion() {
+    let ring = polycore::Ring::new(["x", "y"], polycore::Order::Lex);
+    let polys: Vec<groebner::Polynomial<BigRational>> = ring.parse_many("x^2-y; x*y-1").unwrap();
+    let basis: Vec<polycore::Poly<BigRational>> = groebner::groebner_basis_f4(polys, true).unwrap();
+    assert!(groebner::is_groebner_basis(&basis).unwrap());
+}

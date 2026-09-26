@@ -1,5 +1,6 @@
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
+use groebner::MonomialExt;
 use groebner::{
     Monomial, MonomialOrder, PolynomialRing, PrimeField, groebner_basis, groebner_basis_f4,
     is_groebner_basis,
@@ -39,7 +40,7 @@ fn elimination_order_groebner_basis_projects() {
     assert!(is_groebner_basis(&f4).unwrap());
     let projected: Vec<_> = f4
         .iter()
-        .filter(|p| p.terms.iter().all(|t| t.monomial.exponents()[0] == 0))
+        .filter(|p| p.terms.iter().all(|t| t.0.exps()[0] == 0))
         .collect();
     assert_eq!(projected.len(), 1);
     assert_eq!(ring.format(projected[0]).unwrap(), "x^3 + 32002*y^2");

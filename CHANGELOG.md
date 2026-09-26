@@ -1,5 +1,43 @@
 # Changelog
 
+## 0.4.0 (unreleased)
+
+- Rebase fields, monomials, orders, and sparse polynomials on `polycore`.
+- Use parallel multi-modular F4 automatically over `BigRational`, with leading-term
+  voting, support alignment, bounded CRT retries, and a fresh full modular check.
+- Add `groebner_basis_f4_rational(polys, certify)` for optional exact checks and
+  `f4::groebner_basis_f4_direct` for the direct coefficient-field algorithm.
+- Learn F4 matrix plans at the first prime and replay them at later primes. Changed
+  pivots, supports, or zero-row dependencies fall back to a full run.
+- Intern matrix monomials, filter divisibility with degree masks, and reduce row
+  blocks in parallel with reusable buffers and bounded deferred reduction.
+- Parse parentheses, polynomial powers, and division by constant expressions through
+  `polycore::Ring`, retaining grouped numbers, implicit products, and formatting.
+- Correct corpus fingerprints to omit terms that vanish modulo the reference prime.
+
+### Migration from 0.3
+
+`Zp`, `PrimeField`, `MonomialOrder`, and `Polynomial<F>` remain exported names for
+`Fp`, `Gf`, `Order`, and `Poly<F>`. These are the polycore types, without conversion.
+
+- `PrimeField` now takes a `u64` const modulus. Its `value()` returns `u64`.
+- `Field` uses `+`, `-`, `*`, `/`, and unary `-`. Import `num_traits::{Zero, One}`
+  for concrete-type identities; `Field::inverse` still returns `Option`.
+- Terms are `(Monomial, coefficient)` tuples. Replace `Term::new(c, m)` with `(m, c)`;
+  read `.0` and `.1` in place of `.monomial` and `.coefficient`.
+- Use `m.exps()` instead of the public `m.exponents` field. `Order::Weighted` is
+  now a tuple variant; prefer `Order::weighted`.
+- Import `PolynomialExt` for `s_polynomial`, `make_monic`, and compatibility helpers.
+  Polycore's `reduce` and `divide` return values directly. The old fallible
+  shortest-reducer versions are `normal_form` and `divide_with_remainder`.
+- Import `MonomialExt` for the old monomial method names, or use polycore's `var`,
+  `quo`, multiplication operator, and `order.compare(&a, &b)`.
+- Remove calls to the deprecated `groebner_basis_f4_mod`; use `groebner_basis_f4`.
+- Rational F4 returns a reduced basis even when `canonicalize` is false. The default
+  reconstruction check is probabilistic; pass `certify = true` for exact Buchberger
+  and input-reduction checks.
+
+
 ## 0.3.1 (2026-09-26)
 
 - Add `RationalFunction` for coefficients in Q(a).

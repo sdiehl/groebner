@@ -2,7 +2,8 @@
 //!
 //! From the paper "On an installation of Buchberger's algorithm."
 
-use crate::field::Field;
+use crate::Field;
+use crate::PolynomialExt;
 use crate::groebner::CriticalPair;
 use crate::polynomial::Polynomial;
 use std::collections::HashSet;

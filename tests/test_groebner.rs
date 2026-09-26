@@ -1,4 +1,5 @@
 extern crate groebner;
+use groebner::PolynomialExt;
 use groebner::{MonomialOrder, Polynomial, PolynomialRing, groebner_basis, is_groebner_basis};
 use num_rational::BigRational;
 
@@ -415,21 +416,15 @@ mod tests {
 
         // Check that the basis contains the expected structure
         // (order may vary but should have x^2, xz, and z^2 terms)
-        let has_x2_term = basis.iter().any(|p| {
-            p.terms
-                .iter()
-                .any(|t| t.monomial.exponents.as_ref() == [2, 0, 0])
-        });
-        let has_xz_term = basis.iter().any(|p| {
-            p.terms
-                .iter()
-                .any(|t| t.monomial.exponents.as_ref() == [1, 0, 1])
-        });
-        let has_z2_term = basis.iter().any(|p| {
-            p.terms
-                .iter()
-                .any(|t| t.monomial.exponents.as_ref() == [0, 0, 2])
-        });
+        let has_x2_term = basis
+            .iter()
+            .any(|p| p.terms.iter().any(|t| t.0.exps() == [2, 0, 0]));
+        let has_xz_term = basis
+            .iter()
+            .any(|p| p.terms.iter().any(|t| t.0.exps() == [1, 0, 1]));
+        let has_z2_term = basis
+            .iter()
+            .any(|p| p.terms.iter().any(|t| t.0.exps() == [0, 0, 2]));
 
         assert!(has_x2_term);
         assert!(has_xz_term);
@@ -656,24 +651,21 @@ mod tests {
             basis[0]
                 .leading_monomial()
                 .expect("Leading monomial computation failed")
-                .exponents
-                .as_ref(),
+                .exps(),
             [1, 0, 0]
         ); // Leading term should be x0
         assert_eq!(
             basis[1]
                 .leading_monomial()
                 .expect("Leading monomial computation failed")
-                .exponents
-                .as_ref(),
+                .exps(),
             [0, 1, 0]
         ); // Leading term should be x1
         assert_eq!(
             basis[2]
                 .leading_monomial()
                 .expect("Leading monomial computation failed")
-                .exponents
-                .as_ref(),
+                .exps(),
             [0, 0, 4]
         ); // Leading term should be x2^4
     }
@@ -774,8 +766,7 @@ mod tests {
             .map(|p| {
                 p.leading_monomial()
                     .expect("Leading monomial computation failed")
-                    .exponents
-                    .clone()
+                    .exps()
             })
             .collect();
 
@@ -897,7 +888,7 @@ mod tests {
         );
 
         let basis = vec![g];
-        let remainder = f.reduce(&basis).expect("Polynomial reduction failed");
+        let remainder = f.normal_form(&basis).expect("Polynomial reduction failed");
 
         // The remainder should have degree less than the leading term of g
         assert!(remainder.terms.len() <= f.terms.len());

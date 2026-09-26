@@ -130,12 +130,14 @@ pub fn fingerprint<F>(
 ) -> Option<Vec<Row>> {
     let mut rows = Vec::with_capacity(basis.len());
     for poly in basis {
-        let lead = poly.terms.first()?.monomial.exponents().to_vec();
         let mut terms: Vec<(&[u32], u64)> = poly
             .terms
             .iter()
-            .map(|t| Some((t.monomial.exponents(), residue(&t.coefficient)?)))
+            .map(|t| Some((t.0.exps(), residue(&t.1)?)))
             .collect::<Option<_>>()?;
+        // A nonzero rational term can vanish at the reference prime.
+        terms.retain(|(_, c)| *c != 0);
+        let lead = terms.first()?.0.to_vec();
         terms.sort_by(|a, b| b.0.cmp(a.0));
         let mut h = fnv(FNV_OFFSET, terms.len() as u64);
         for (exps, c) in terms {
@@ -242,8 +244,7 @@ pub fn run(system: &System, field: Field, algorithm: Algorithm) -> Result<Vec<Ro
             let ring = PolynomialRing::<F32003>::new(&system.vars, MonomialOrder::GRevLex)
                 .map_err(|e| e.to_string())?;
             let basis = compute(&ring, system, algorithm)?;
-            fingerprint(&basis, |c| Some(u64::from(c.value())))
-                .ok_or_else(|| "empty polynomial".into())
+            fingerprint(&basis, |c| Some(c.value())).ok_or_else(|| "empty polynomial".into())
         }
         Field::Qq => {
             let ring = PolynomialRing::<BigRational>::new(&system.vars, MonomialOrder::GRevLex)

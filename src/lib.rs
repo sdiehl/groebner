@@ -48,8 +48,11 @@
 struct ReadmeDoctests;
 
 pub mod f4;
+pub mod modular;
+pub use modular::groebner_basis_f4_rational;
 pub mod fglm;
-pub mod field;
+pub use polycore::Modular as ModularField;
+pub use polycore::{Field, Fp, Gf, Modular};
 pub mod finite_field;
 pub mod grebauer_moller;
 pub mod groebner;
@@ -61,11 +64,8 @@ pub mod rational_function;
 pub mod ring;
 pub mod sugar;
 
-#[allow(deprecated)]
-pub use f4::groebner_basis_f4_mod;
 pub use f4::{F4Field, SparseRow, groebner_basis_f4};
 pub use fglm::{fglm, is_zero_dimensional, standard_monomials};
-pub use field::{Field, ModularField};
 pub use finite_field::{PrimeField, PrimeFieldParseError, Zp};
 pub use grebauer_moller::filter_gm_pairs;
 pub use groebner::{
@@ -76,7 +76,8 @@ pub use groebner::{
 pub use groebner::{groebner_basis_parallel, is_groebner_basis_parallel};
 pub use ideal::Ideal;
 pub use lift::{LiftBasis, verify_lift};
-pub use monomial::{Monomial, MonomialOrder};
-pub use polynomial::{Polynomial, Term};
+pub use monomial::{Monomial, MonomialExt, MonomialOrder};
+pub use polycore::{Order, Poly, Ring};
+pub use polynomial::{Polynomial, PolynomialExt, Term};
 pub use rational_function::{RationalFunction, specialize};
 pub use ring::{ParseCoefficient, ParsePolynomialError, PolynomialRing};
