@@ -24,6 +24,7 @@ let basis = groebner_basis_f4(polys, true)?;
 for p in &basis {
     println!("{}", ring.format(p)?);
 }
+# Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
 Buchberger over any `Field` is available as `groebner_basis` (and `groebner_basis_parallel` with the default `parallel` feature). Runtime primes up to 64 bits use `Zp`:
@@ -33,6 +34,7 @@ use groebner::{groebner_basis_f4, MonomialOrder, PolynomialRing, Zp};
 
 let ring = PolynomialRing::<Zp>::with_modulus(["x", "y"], MonomialOrder::Lex, 1_000_003)?;
 let basis = groebner_basis_f4(ring.parse_many("x^2 - y; x*y - 1")?, true)?;
+# Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
 `Ideal` wraps a reduced basis and answers the usual questions: membership and normal forms, elimination ideals, zero-dimensionality, the standard monomial basis and its dimension, radical membership, multiplication matrices, and change of order (FGLM for zero-dimensional ideals):
@@ -46,6 +48,7 @@ let ideal = Ideal::new(ring.parse_many("x^2 + y^2 - 1; x - y^3")?)?;
 assert_eq!(ideal.vector_space_dimension(), Some(6));
 let lex = ideal.change_order(MonomialOrder::Lex)?;
 assert!(lex.contains(&ring.parse("y^6 + y^2 - 1")?)?);
+# Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
 `Ideal::lift` returns cofactors `h` with `f = sum h[k] * generators[k]` for members (as in Singular's `lift`), so an external checker can confirm membership with `verify_lift`, which uses only ring addition and multiplication:
@@ -59,6 +62,7 @@ let ideal = Ideal::new(ring.parse_many("x^2 - y; y^2 - x")?)?;
 let f = ring.parse("x^4 - x")?;
 let h = ideal.lift(&f)?.ok_or("not a member")?;
 assert!(verify_lift(ideal.generators(), &h, &f));
+# Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
 Monomial orders: `Lex`, `GrLex`, `GRevLex`, `MonomialOrder::weighted(weights, tie_break)`, and product orders via `MonomialOrder::block` or `MonomialOrder::elimination(k, rest)`.
@@ -71,6 +75,7 @@ use groebner::{groebner_basis_f4, MonomialOrder, PolynomialRing, RationalFunctio
 let ring = PolynomialRing::<RationalFunction>::with_parameter(["x", "y"], MonomialOrder::Lex, "a")?;
 let basis = groebner_basis_f4(ring.parse_many("x^2 - a; x*y - 1")?, true)?;
 assert_eq!(ring.format(&basis[1])?, "y^2 - 1/a");
+# Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
 ## Test Suite
