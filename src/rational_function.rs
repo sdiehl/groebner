@@ -15,95 +15,71 @@ use crate::polynomial::Polynomial;
 use crate::polynomial::term;
 use num_rational::BigRational;
 use num_traits::{One, Signed, Zero};
+use polycore::{RatFunc, Uni};
 use std::fmt;
 use std::ops::{Add, Div, Mul, Neg, Sub};
 
-type Poly = Vec<BigRational>;
-
-/// A quotient `p(a) / q(a)` of univariate rational polynomials in lowest terms with `q` monic.
+/// A quotient `p(a) / q(a)` of univariate rational polynomials in lowest terms with `q` monic,
+/// a thin wrapper over [`polycore::RatFunc`].
 ///
 /// Coefficient vectors are in ascending degree. [`fmt::Display`] names the parameter `a`;
 /// [`crate::PolynomialRing::format`] uses the ring's parameter name instead.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct RationalFunction {
-    numerator: Poly,
-    denominator: Poly,
-}
+pub struct RationalFunction(RatFunc<BigRational>);
 
 impl RationalFunction {
     /// `numerator / denominator` reduced to lowest terms, or `None` if the denominator is zero.
     pub fn new(numerator: Vec<BigRational>, denominator: Vec<BigRational>) -> Option<Self> {
-        let numerator = trimmed(numerator);
-        let denominator = trimmed(denominator);
-        if denominator.is_empty() {
-            return None;
-        }
-        if numerator.is_empty() {
-            return Some(Self::zero());
-        }
-        let g = gcd(&numerator, &denominator);
-        let numerator = divide_exact(&numerator, &g);
-        let denominator = divide_exact(&denominator, &g);
-        let lead = denominator.last()?.clone();
-        Some(Self {
-            numerator: scale(&numerator, &lead.recip()),
-            denominator: scale(&denominator, &lead.recip()),
-        })
+        let denominator = Uni::new(denominator);
+        (!denominator.is_zero()).then(|| Self(RatFunc::new(&Uni::new(numerator), &denominator)))
     }
 
     pub fn constant(value: BigRational) -> Self {
-        Self {
-            numerator: trimmed(vec![value]),
-            denominator: vec![BigRational::one()],
-        }
+        Self(Uni::constant(value).into())
     }
 
     /// The parameter `a` itself.
     pub fn parameter() -> Self {
-        Self::parameter_power(1)
+        Self(RatFunc::var())
     }
 
     pub fn parameter_power(exponent: u32) -> Self {
         let mut numerator = vec![BigRational::zero(); exponent as usize];
         numerator.push(BigRational::one());
-        Self {
-            numerator,
-            denominator: vec![BigRational::one()],
-        }
+        Self(Uni::new(numerator).into())
     }
 
     pub fn numerator(&self) -> &[BigRational] {
-        &self.numerator
+        &self.0.num().0
     }
 
     pub fn denominator(&self) -> &[BigRational] {
-        &self.denominator
+        &self.0.den().0
     }
 
     /// Value at `a = value`, or `None` where the denominator vanishes.
     pub fn evaluate(&self, value: &BigRational) -> Option<BigRational> {
-        let denominator = horner(&self.denominator, value);
-        (!denominator.is_zero()).then(|| horner(&self.numerator, value) / denominator)
+        self.0.eval(value)
     }
 
     /// Plain-text form with the parameter printed as `name`, parenthesized when used as a factor.
     pub(crate) fn render(&self, name: &str, as_factor: bool) -> String {
-        if self.numerator.is_empty() {
+        if self.is_zero() {
             return "0".to_string();
         }
-        let negative = self.numerator.last().is_some_and(Signed::is_negative);
+        let negative = self.numerator().last().is_some_and(Signed::is_negative);
         let numerator = if negative {
-            negated(&self.numerator)
+            negated(self.numerator())
         } else {
-            self.numerator.clone()
+            self.numerator().to_vec()
         };
         let sign = if negative { "-" } else { "" };
         let text = poly_text(&numerator, name);
-        if self.denominator.len() == 1 {
+        if self.denominator().len() == 1 {
             return if terms(&numerator) > 1 && as_factor {
                 format!("{sign}({text})")
             } else if negative {
-                poly_text(&self.numerator, name)
+                poly_text(self.numerator(), name)
             } else {
                 text
             };
@@ -113,8 +89,8 @@ impl RationalFunction {
         } else {
             text
         };
-        let denominator_text = poly_text(&self.denominator, name);
-        let denominator_text = if terms(&self.denominator) > 1 {
+        let denominator_text = poly_text(self.denominator(), name);
+        let denominator_text = if terms(self.denominator()) > 1 {
             format!("({denominator_text})")
         } else {
             denominator_text
@@ -123,19 +99,19 @@ impl RationalFunction {
     }
 
     pub(crate) fn render_latex(&self, name: &str) -> String {
-        if self.numerator.is_empty() {
+        if self.is_zero() {
             return "0".to_string();
         }
-        let negative = self.numerator.last().is_some_and(Signed::is_negative);
+        let negative = self.numerator().last().is_some_and(Signed::is_negative);
         let numerator = if negative {
-            negated(&self.numerator)
+            negated(self.numerator())
         } else {
-            self.numerator.clone()
+            self.numerator().to_vec()
         };
         let sign = if negative { "-" } else { "" };
         let text = poly_latex(&numerator, name);
-        if self.denominator.len() > 1 {
-            let denominator = poly_latex(&self.denominator, name);
+        if self.denominator().len() > 1 {
+            let denominator = poly_latex(self.denominator(), name);
             format!("{sign}\\frac{{{text}}}{{{denominator}}}")
         } else if terms(&numerator) > 1 {
             format!("{sign}\\left({text}\\right)")
@@ -164,86 +140,45 @@ pub fn specialize(
 
 impl Zero for RationalFunction {
     fn zero() -> Self {
-        Self {
-            numerator: Vec::new(),
-            denominator: vec![BigRational::one()],
-        }
+        Self(RatFunc::zero())
     }
     fn is_zero(&self) -> bool {
-        self.numerator.is_empty()
+        self.0.is_zero()
     }
 }
 impl One for RationalFunction {
     fn one() -> Self {
-        Self::constant(BigRational::one())
-    }
-    fn is_one(&self) -> bool {
-        self.denominator.len() == 1 && self.numerator.len() == 1 && self.numerator[0].is_one()
-    }
-}
-impl Add for RationalFunction {
-    type Output = Self;
-    fn add(self, other: Self) -> Self {
-        if self.is_zero() {
-            return other;
-        }
-        if other.is_zero() {
-            return self;
-        }
-        let (numerator, denominator) = if self.denominator == other.denominator {
-            (
-                sum(&self.numerator, &other.numerator),
-                self.denominator.clone(),
-            )
-        } else {
-            (
-                sum(
-                    &product(&self.numerator, &other.denominator),
-                    &product(&other.numerator, &self.denominator),
-                ),
-                product(&self.denominator, &other.denominator),
-            )
-        };
-        Self::new(numerator, denominator).unwrap_or_else(Self::zero)
-    }
-}
-impl Sub for RationalFunction {
-    type Output = Self;
-    fn sub(self, other: Self) -> Self {
-        self + -other
-    }
-}
-impl Mul for RationalFunction {
-    type Output = Self;
-    fn mul(self, other: Self) -> Self {
-        if self.is_zero() || other.is_zero() {
-            return Self::zero();
-        }
-        Self::new(
-            product(&self.numerator, &other.numerator),
-            product(&self.denominator, &other.denominator),
-        )
-        .unwrap_or_else(Self::zero)
+        Self(RatFunc::one())
     }
 }
 impl Neg for RationalFunction {
     type Output = Self;
     fn neg(self) -> Self {
-        Self {
-            numerator: negated(&self.numerator),
-            denominator: self.denominator.clone(),
-        }
+        Self(-self.0)
+    }
+}
+impl Add for RationalFunction {
+    type Output = Self;
+    fn add(self, other: Self) -> Self {
+        Self(self.0 + other.0)
+    }
+}
+impl Sub for RationalFunction {
+    type Output = Self;
+    fn sub(self, other: Self) -> Self {
+        Self(self.0 - other.0)
+    }
+}
+impl Mul for RationalFunction {
+    type Output = Self;
+    fn mul(self, other: Self) -> Self {
+        Self(self.0 * other.0)
     }
 }
 impl Div for RationalFunction {
     type Output = Self;
     fn div(self, other: Self) -> Self {
-        assert!(!other.is_zero(), "division by zero in Q(a)");
-        Self::new(
-            product(&self.numerator, &other.denominator),
-            product(&self.denominator, &other.numerator),
-        )
-        .unwrap_or_else(|| unreachable!("nonzero denominator"))
+        Self(self.0 / other.0)
     }
 }
 
@@ -255,13 +190,6 @@ impl fmt::Display for RationalFunction {
     }
 }
 
-fn trimmed(mut p: Poly) -> Poly {
-    while p.last().is_some_and(num_traits::Zero::is_zero) {
-        p.pop();
-    }
-    p
-}
-
 fn terms(p: &[BigRational]) -> usize {
     p.iter().filter(|c| !c.is_zero()).count()
 }
@@ -270,84 +198,8 @@ fn has_integer_coefficients(p: &[BigRational]) -> bool {
     p.iter().all(num_rational::Ratio::is_integer)
 }
 
-fn scale(p: &[BigRational], c: &BigRational) -> Poly {
-    p.iter().map(|x| x * c).collect()
-}
-
-fn negated(p: &[BigRational]) -> Poly {
+fn negated(p: &[BigRational]) -> Vec<BigRational> {
     p.iter().map(|x| -x).collect()
-}
-
-fn sum(a: &[BigRational], b: &[BigRational]) -> Poly {
-    let (long, short) = if a.len() >= b.len() { (a, b) } else { (b, a) };
-    let mut out = long.to_vec();
-    for (x, y) in out.iter_mut().zip(short) {
-        *x += y;
-    }
-    trimmed(out)
-}
-
-fn product(a: &[BigRational], b: &[BigRational]) -> Poly {
-    if a.is_empty() || b.is_empty() {
-        return Vec::new();
-    }
-    let mut out = vec![BigRational::zero(); a.len() + b.len() - 1];
-    for (i, x) in a.iter().enumerate() {
-        if x.is_zero() {
-            continue;
-        }
-        for (j, y) in b.iter().enumerate() {
-            out[i + j] += x * y;
-        }
-    }
-    trimmed(out)
-}
-
-/// Quotient and remainder of `a` by a nonzero `b`.
-fn divide(a: &[BigRational], b: &[BigRational]) -> (Poly, Poly) {
-    let mut remainder = a.to_vec();
-    let Some(lead) = b.last().map(BigRational::recip) else {
-        return (Vec::new(), remainder);
-    };
-    if a.len() < b.len() {
-        return (Vec::new(), remainder);
-    }
-    let mut quotient = vec![BigRational::zero(); a.len() - b.len() + 1];
-    for shift in (0..quotient.len()).rev() {
-        let c = &remainder[shift + b.len() - 1] * &lead;
-        if c.is_zero() {
-            continue;
-        }
-        for (k, y) in b.iter().enumerate() {
-            remainder[shift + k] -= &c * y;
-        }
-        quotient[shift] = c;
-    }
-    remainder.truncate(b.len() - 1);
-    (trimmed(quotient), trimmed(remainder))
-}
-
-fn divide_exact(a: &[BigRational], b: &[BigRational]) -> Poly {
-    divide(a, b).0
-}
-
-fn gcd(a: &[BigRational], b: &[BigRational]) -> Poly {
-    let (mut a, mut b) = (a.to_vec(), b.to_vec());
-    while !b.is_empty() {
-        let r = divide(&a, &b).1;
-        a = b;
-        b = r;
-    }
-    match a.last().map(BigRational::recip) {
-        Some(lead) => scale(&a, &lead),
-        None => vec![BigRational::one()],
-    }
-}
-
-fn horner(p: &[BigRational], value: &BigRational) -> BigRational {
-    p.iter()
-        .rev()
-        .fold(BigRational::zero(), |acc, c| acc * value + c)
 }
 
 fn poly_text(p: &[BigRational], name: &str) -> String {

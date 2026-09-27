@@ -4,6 +4,7 @@
 
 - Harden rational F4 certification by verifying exact cofactor certificates for every
   reconstructed basis polynomial, proving both inclusions with the input ideal.
+- Build `RationalFunction` on `polycore::RatFunc`.
 
 ## 0.4.0 (2026-09-27)
 
