@@ -1,12 +1,13 @@
 # Changelog
 
-## Unreleased
+## 0.4.1 (2026-09-27)
 
-- Harden rational F4 certification by verifying exact cofactor certificates for every
-  reconstructed basis polynomial, proving both inclusions with the input ideal.
+- Verify exact cofactor certificates for every reconstructed basis polynomial.
 - Build `RationalFunction` on `polycore::RatFunc`.
-- Add `Frac` coefficients in several parameters behind the `parameters` feature.
+- Add `Frac` coefficients in several parameters.
+- Gate `Frac` behind the optional `parameters` feature.
 - Add `PolynomialRing::with_parameters` and `ParseCoefficient::parameter`.
+- Lower MSRV to Rust 1.88.
 
 ## 0.4.0 (2026-09-27)
 

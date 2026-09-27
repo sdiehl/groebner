@@ -1,6 +1,6 @@
 [package]
 name = "groebner"
-version = "0.4.0"
+version = "0.4.1"
 authors = ["Stephen Diehl"]
 categories = ["science", "mathematics"]
 documentation = "https://docs.rs/groebner"
@@ -24,7 +24,7 @@ keywords = ["mathematics", "algebra", "polynomial", "groebner", "basis"]
 license = "MIT"
 readme = "README.md"
 repository = "https://github.com/sdiehl/groebner"
-rust-version = "1.98"
+rust-version = "1.88"
 description = "A Rust library implementing Groebner basis algorithms"
 
 [lib]
@@ -33,11 +33,11 @@ path = "src/lib.rs"
 
 [dependencies]
 num-bigint = "0.4"
-polycore = "0.1.0"
+polycore = "0.1.1"
 num-rational = "0.4"
 num-traits = "0.2"
 rayon = { version = "1.10", optional = true }
-zippel-gcd = { version = "0.2", optional = true, default-features = false }
+zippel-gcd = { version = "0.2.0", optional = true, default-features = false }
 
 [features]
 default = ["parallel"]

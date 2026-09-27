@@ -222,7 +222,7 @@ dependencies = [
 
 [[package]]
 name = "groebner"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "criterion",
  "num-bigint",
@@ -230,6 +230,7 @@ dependencies = [
  "num-traits",
  "polycore",
  "rayon",
+ "zippel-gcd",
 ]
 
 [[package]]
@@ -384,9 +385,9 @@ dependencies = [
 
 [[package]]
 name = "polycore"
-version = "0.1.0"
+version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1138accefa3754a153ccae3e4cd9ecfb7d1ea210ec37977eb767f75ef6dc4df3"
+checksum = "cc80c7974068cb4da317c0c454b112f4a1944a2437aec1938b6d2f13a5bf6d65"
 dependencies = [
  "machine-prime",
  "num-bigint",
@@ -715,6 +716,29 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.119",
+]
+
+[[package]]
+name = "zippel-gcd"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8efa17afe43760a8df02fa16993d312c3041ade4a1975bde88b216442716f305"
+dependencies = [
+ "num-bigint",
+ "num-integer",
+ "num-rational",
+ "num-traits",
+ "polycore",
+ "zippel-interp",
+]
+
+[[package]]
+name = "zippel-interp"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "aae15f3d64cc493740b1f58e0f5d487de9b3718bf4e0193d43c59325820710fb"
+dependencies = [
+ "polycore",
 ]
 
 [[package]]
