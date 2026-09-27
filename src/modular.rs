@@ -10,7 +10,11 @@ use std::collections::HashMap;
 type Layout = Vec<Vec<Monomial>>;
 type Image = Option<(Vec<Polynomial<Fp>>, Option<F4Trace>)>;
 /// Compute a rational basis by CRT and rational reconstruction, checked at a fresh prime.
-/// With `certify`, also check Buchberger's criterion and reduction of every input over Q.
+/// With `certify`, prove equality with the input ideal over Q: check Buchberger's
+/// criterion, reduce every input by the candidate, and verify exact cofactor
+/// certificates expressing every candidate polynomial in the input generators.
+/// Certification builds an auxiliary Buchberger basis with cofactor tracking and
+/// can be substantially more expensive than the modular computation.
 pub fn groebner_basis_f4_rational(
     polynomials: Vec<Polynomial<BigRational>>,
     certify: bool,
@@ -20,12 +24,32 @@ pub fn groebner_basis_f4_rational(
     // 23-bit primes allow fully deferred u64 accumulation for matrices with up to
     // 2^18 columns, trading more CRT images for much cheaper row elimination.
     let basis = reconstruct(&primitive, Primes::below(1 << 23), |_, _| {})?;
-    if certify
-        && (!crate::is_groebner_basis(&basis)? || input.iter().any(|p| !p.reduce(&basis).is_zero()))
-    {
+    if certify && !certify_basis(&input, &basis)? {
         return Err(GroebnerError::ReconstructionFailed);
     }
     Ok(basis)
+}
+
+/// Establish both ideal inclusions independently of modular reconstruction.
+fn certify_basis(
+    input: &[Polynomial<BigRational>],
+    basis: &[Polynomial<BigRational>],
+) -> Result<bool, GroebnerError> {
+    if !crate::is_groebner_basis(basis)? || input.iter().any(|p| !p.reduce(basis).is_zero()) {
+        return Ok(false);
+    }
+    // Input reduction proves <input> is contained in <basis>. In particular,
+    // [1] passes those checks for every input, so the reverse inclusion is vital.
+    let lifted = crate::LiftBasis::new(input)?;
+    for polynomial in basis {
+        let Some(cofactors) = lifted.lift(polynomial)? else {
+            return Ok(false);
+        };
+        if !crate::verify_lift(input, &cofactors, polynomial) {
+            return Ok(false);
+        }
+    }
+    Ok(true)
 }
 
 #[cfg(test)]
@@ -441,6 +465,34 @@ mod tests {
             .parse_many(text)
             .expect("polynomials")
     }
+    #[test]
+    fn certification_rejects_strictly_larger_ideals() {
+        let polys = input("x^2; y");
+        for candidate in [input("1"), input("x; y")] {
+            // Both old checks pass, despite these candidates generating a larger ideal.
+            assert!(crate::is_groebner_basis(&candidate).unwrap());
+            assert!(polys.iter().all(|p| p.reduce(&candidate).is_zero()));
+            assert!(!certify_basis(&polys, &candidate).unwrap());
+        }
+    }
+
+    #[test]
+    fn certification_rejects_smaller_ideals_and_non_groebner_generators() {
+        assert!(!certify_basis(&input("x; y"), &input("x^2; y")).unwrap());
+        let polys = input("x^2 - y; x*y - 1");
+        assert!(!crate::is_groebner_basis(&polys).unwrap());
+        assert!(!certify_basis(&polys, &polys).unwrap());
+    }
+
+    #[test]
+    fn exact_certification_accepts_reconstructed_bases() {
+        for text in ["2/3*x^2 - 2/3*y; -3/5*x*y + 3/5", "x^2; y", "x; x - 1"] {
+            let polys = input(text);
+            let basis = groebner_basis_f4_rational(polys.clone(), true).unwrap();
+            assert_eq!(basis, groebner_basis_f4_direct(polys, true).unwrap());
+        }
+    }
+
     #[test]
     fn missing_tail_support_is_zero_filled() {
         let polys = input("x + 6*y + 1");

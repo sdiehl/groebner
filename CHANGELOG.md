@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Harden rational F4 certification by verifying exact cofactor certificates for every
+  reconstructed basis polynomial, proving both inclusions with the input ideal.
+
 ## 0.4.0 (2026-09-27)
 
 - Rebase fields, monomials, orders, and sparse polynomials on `polycore`.
