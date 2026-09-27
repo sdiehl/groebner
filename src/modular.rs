@@ -106,23 +106,21 @@ impl Accumulator {
         // Checking only the final coefficient often checks a trivial zero or one.
         // These probes are a heuristic: an unprobed large coefficient can still
         // make the full reconstruction fail again on the next batch.
+        let context = crt::WangContext::new(&self.modulus)?;
         let probes = 8.min(self.residues.len());
         for i in 0..probes {
             let index = i * (self.residues.len() - 1) / probes.saturating_sub(1).max(1);
-            crt::wang(&self.residues[index], &self.modulus)?;
+            context.reconstruct(&self.residues[index])?;
         }
         #[cfg(feature = "parallel")]
         if self.residues.len() >= 256 {
             return self
                 .residues
                 .par_iter()
-                .map(|x| crt::wang(x, &self.modulus))
+                .map(|x| context.reconstruct(x))
                 .collect();
         }
-        self.residues
-            .iter()
-            .map(|x| crt::wang(x, &self.modulus))
-            .collect()
+        context.reconstruct_many(&self.residues)
     }
 }
 
