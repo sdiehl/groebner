@@ -90,7 +90,7 @@ pub struct PolynomialRing<F> {
     variable_indices: HashMap<String, usize>,
     order: MonomialOrder,
     modulus: Option<u64>,
-    parameter: Option<String>,
+    parameters: Vec<String>,
     _field: PhantomData<F>,
 }
 
@@ -100,7 +100,7 @@ impl<F> PolynomialRing<F> {
         I: IntoIterator<Item = S>,
         S: Into<String>,
     {
-        Self::build(variables, order, None, None)
+        Self::build(variables, order, None, Vec::new())
     }
 
     /// A ring over a runtime prime field, needed to parse [`Zp`] coefficients.
@@ -113,7 +113,7 @@ impl<F> PolynomialRing<F> {
         I: IntoIterator<Item = S>,
         S: Into<String>,
     {
-        Self::build(variables, order, Some(modulus), None)
+        Self::build(variables, order, Some(modulus), Vec::new())
     }
 
     /// A ring over [`RationalFunction`] whose coefficients may mention `parameter`.
@@ -126,14 +126,35 @@ impl<F> PolynomialRing<F> {
         I: IntoIterator<Item = S>,
         S: Into<String>,
     {
-        Self::build(variables, order, None, Some(parameter.into()))
+        Self::build(variables, order, None, vec![parameter.into()])
+    }
+
+    /// A ring whose coefficients may mention several `parameters`, for `Frac` coefficients
+    /// (feature `parameters`).
+    pub fn with_parameters<I, S, P, T>(
+        variables: I,
+        order: MonomialOrder,
+        parameters: P,
+    ) -> Result<Self, ParsePolynomialError>
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+        P: IntoIterator<Item = T>,
+        T: Into<String>,
+    {
+        Self::build(
+            variables,
+            order,
+            None,
+            parameters.into_iter().map(Into::into).collect(),
+        )
     }
 
     fn build<I, S>(
         variables: I,
         order: MonomialOrder,
         modulus: Option<u64>,
-        parameter: Option<String>,
+        parameters: Vec<String>,
     ) -> Result<Self, ParsePolynomialError>
     where
         I: IntoIterator<Item = S>,
@@ -150,9 +171,10 @@ impl<F> PolynomialRing<F> {
                 return Err(ParsePolynomialError::DuplicateVariable(variable.clone()));
             }
         }
-        if let Some(name) = parameter
-            .as_ref()
-            .filter(|p| variable_indices.contains_key(*p))
+        let mut seen = std::collections::HashSet::new();
+        if let Some(name) = parameters
+            .iter()
+            .find(|p| variable_indices.contains_key(*p) || !seen.insert(*p))
         {
             return Err(ParsePolynomialError::DuplicateVariable(name.clone()));
         }
@@ -162,7 +184,7 @@ impl<F> PolynomialRing<F> {
             variable_indices,
             order,
             modulus,
-            parameter,
+            parameters,
             _field: PhantomData,
         })
     }
@@ -179,12 +201,13 @@ impl<F> PolynomialRing<F> {
         self.modulus
     }
 
+    /// The first parameter.
     pub fn parameter(&self) -> Option<&str> {
-        self.parameter.as_deref()
+        self.parameters.first().map(String::as_str)
     }
 
-    fn parameter_name(&self) -> &str {
-        self.parameter.as_deref().unwrap_or("a")
+    pub fn parameters(&self) -> &[String] {
+        &self.parameters
     }
 
     /// The same ring under a different monomial order.
@@ -194,13 +217,23 @@ impl<F> PolynomialRing<F> {
             variable_indices: self.variable_indices.clone(),
             order,
             modulus: self.modulus,
-            parameter: self.parameter.clone(),
+            parameters: self.parameters.clone(),
             _field: PhantomData,
         }
     }
 }
 
 impl<F: ParseCoefficient> PolynomialRing<F> {
+    /// Each parameter the field can represent, with its value.
+    fn params<G: ParseCoefficient>(&self) -> Vec<(String, G)> {
+        let n = self.parameters.len();
+        self.parameters
+            .iter()
+            .enumerate()
+            .filter_map(|(i, p)| G::parameter(i, n).map(|v| (p.clone(), v)))
+            .collect()
+    }
+
     pub fn parse(&self, input: &str) -> Result<Polynomial<F>, ParsePolynomialError> {
         let tokens = Lexer::new(input).tokenize()?;
         // Retain the legacy grouped-number and implicit-product syntax while delegating
@@ -210,7 +243,7 @@ impl<F: ParseCoefficient> PolynomialRing<F> {
         for token in &tokens {
             if let Token::Ident(name) = token
                 && !self.variable_indices.contains_key(name)
-                && (self.parameter.as_ref() != Some(name) || F::parameter_power(1).is_none())
+                && !self.params::<F>().iter().any(|(p, _)| p == name)
             {
                 return Err(ParsePolynomialError::UnknownVariable(name.clone()));
             }
@@ -240,12 +273,11 @@ impl<F: ParseCoefficient> PolynomialRing<F> {
                 F::zero()
             })
         };
-        let params = self
-            .parameter
-            .as_deref()
-            .and_then(|name| F::parameter_power(1).map(|value| (name, value)))
-            .into_iter()
-            .collect::<Vec<_>>();
+        let params = self.params::<F>();
+        let params: Vec<(&str, F)> = params
+            .iter()
+            .map(|(p, v)| (p.as_str(), v.clone()))
+            .collect();
         let result = core.parse_with(&source, &lift, &params);
         if let Some(e) = error.into_inner() {
             return Err(e);
@@ -278,7 +310,7 @@ impl<F: ParseCoefficient> PolynomialRing<F> {
 
         let mut output = String::new();
         for term in &polynomial.terms {
-            let coeff = term.1.format_coefficient(self.parameter_name());
+            let coeff = term.1.format_coefficient_in(&self.parameters);
             let is_negative = coeff.starts_with('-');
             let abs_coeff = if is_negative { &coeff[1..] } else { &coeff };
             let monomial = self.format_monomial(&term.0)?;
@@ -320,9 +352,8 @@ impl<F: ParseCoefficient> PolynomialRing<F> {
 
         let mut output = String::new();
         for term in &polynomial.terms {
-            let coeff = term
-                .1
-                .format_coefficient_latex(&latex_variable(self.parameter_name()));
+            let names: Vec<String> = self.parameters.iter().map(|p| latex_variable(p)).collect();
+            let coeff = term.1.format_coefficient_latex_in(&names);
             let is_negative = coeff.starts_with('-');
             let coeff_latex = if is_negative { &coeff[1..] } else { &coeff }.to_string();
             let abs_coeff = coeff_latex.as_str();
@@ -574,6 +605,24 @@ pub trait ParseCoefficient: Field + fmt::Display {
     /// The ring parameter raised to `exponent`, for fields with a parameter.
     fn parameter_power(_exponent: u32) -> Option<Self> {
         None
+    }
+
+    /// Parameter `index` of `count`, for fields with parameters. The default is
+    /// [`Self::parameter_power`] for a single parameter.
+    fn parameter(index: usize, count: usize) -> Option<Self> {
+        (index == 0 && count == 1)
+            .then(|| Self::parameter_power(1))
+            .flatten()
+    }
+
+    /// Text for this coefficient as a factor of a term, with the parameters named `parameters`.
+    fn format_coefficient_in(&self, parameters: &[String]) -> String {
+        self.format_coefficient(parameters.first().map_or("a", String::as_str))
+    }
+
+    /// LaTeX for this coefficient, with the parameters already in LaTeX.
+    fn format_coefficient_latex_in(&self, parameters: &[String]) -> String {
+        self.format_coefficient_latex(parameters.first().map_or("a", String::as_str))
     }
 
     /// Text for this coefficient as a factor of a term, with the parameter named `parameter`.

@@ -37,10 +37,12 @@ polycore = "0.1.0"
 num-rational = "0.4"
 num-traits = "0.2"
 rayon = { version = "1.10", optional = true }
+zippel-gcd = { version = "0.2", optional = true, default-features = false }
 
 [features]
 default = ["parallel"]
 parallel = ["dep:rayon"]
+parameters = ["dep:zippel-gcd"]
 
 [dev-dependencies]
 criterion = "0.8"

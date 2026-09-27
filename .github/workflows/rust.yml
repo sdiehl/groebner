@@ -20,6 +20,8 @@ jobs:
         run: cargo build --locked --verbose
       - name: Run tests
         run: cargo test --locked --verbose
+      - name: Run tests with parameters
+        run: cargo test --locked --features parameters
       - name: Test corpus runner
         run: cargo test --locked --example corpus
       - name: Run doc tests

@@ -5,6 +5,8 @@
 - Harden rational F4 certification by verifying exact cofactor certificates for every
   reconstructed basis polynomial, proving both inclusions with the input ideal.
 - Build `RationalFunction` on `polycore::RatFunc`.
+- Add `Frac` coefficients in several parameters behind the `parameters` feature.
+- Add `PolynomialRing::with_parameters` and `ParseCoefficient::parameter`.
 
 ## 0.4.0 (2026-09-27)
 

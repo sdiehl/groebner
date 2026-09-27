@@ -59,6 +59,8 @@ pub mod groebner;
 pub mod ideal;
 pub mod lift;
 pub mod monomial;
+#[cfg(feature = "parameters")]
+pub mod parameters;
 pub mod polynomial;
 pub mod rational_function;
 pub mod ring;
@@ -77,6 +79,8 @@ pub use groebner::{groebner_basis_parallel, is_groebner_basis_parallel};
 pub use ideal::Ideal;
 pub use lift::{LiftBasis, verify_lift};
 pub use monomial::{Monomial, MonomialExt, MonomialOrder};
+#[cfg(feature = "parameters")]
+pub use parameters::Frac;
 pub use polycore::{Order, Poly, Ring};
 pub use polynomial::{Polynomial, PolynomialExt, Term};
 pub use rational_function::{RationalFunction, specialize};

@@ -78,6 +78,8 @@ assert_eq!(ring.format(&basis[1])?, "y^2 - 1/a");
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
+Several parameters work over `Frac`, the field Q(a, b, ...), behind the `parameters` feature. Its coefficients are cancelled by `zippel-gcd`, and the ring is built with `PolynomialRing::with_parameters`.
+
 ## Test Suite
 
 ```bash
