@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Echelonize F4 matrices over prime fields by random linear combinations of row
+  blocks, reducing about one row per new pivot. A block stops after enough
+  consecutive zero combinations to miss a pivot with probability below 2^-40.
+  Multi-modular runs keep the deterministic traced elimination.
+- Intern F4 matrix monomials as packed exponent keys, in parallel per preprocessing
+  level with sharded tables for new monomials.
 - Reduce leftover F4 entries during the elimination sweep, skipping the output pass
   for rows that reduce to zero.
 - Scatter F4 reducer rows in fixed chunks of eight and store residues as `u16`

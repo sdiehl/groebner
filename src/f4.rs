@@ -24,13 +24,15 @@ use crate::polynomial::term;
 use crate::{Field, ModularField};
 use num_rational::BigRational;
 use polycore::modp::{add as add_mod, inv as inv_mod, mul as mul_mod};
+use polycore::sample::Rng;
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 use rustc_hash::{FxHashMap as HashMap, FxHashSet as HashSet};
 use std::borrow::Borrow;
 use std::collections::VecDeque;
 use std::hash::{Hash, Hasher};
-use std::sync::OnceLock;
+use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::{Mutex, OnceLock, PoisonError};
 
 /// A sparse matrix row with columns in ascending index order (descending monomial order).
 #[derive(Debug, Clone)]
@@ -392,21 +394,51 @@ impl Borrow<[u32]> for Key {
     }
 }
 
+// Exponents of up to 16 variables in 7-bit lanes of one integer, so a product is one
+// addition that cannot carry, and a lane with its high bit set flags an overflow.
+const LANES: u128 = 0x8080_8080_8080_8080_8080_8080_8080_8080;
+
+fn pack(exps: &[u32]) -> Option<u128> {
+    if exps.len() > 16 {
+        return None;
+    }
+    exps.iter()
+        .rev()
+        .try_fold(0u128, |acc, &e| (e < 128).then(|| acc << 8 | u128::from(e)))
+}
+
 #[derive(Default)]
 struct MonomialTable {
+    packed: HashMap<u128, u32>,
     ids: HashMap<Key, u32>,
     monomials: Vec<Monomial>,
     scratch: Vec<u32>,
 }
 impl MonomialTable {
     fn intern(&mut self, m: &Monomial) -> (u32, bool) {
-        match self.ids.get(m.exps()) {
+        let found = match pack(m.exps()) {
+            Some(k) => self.packed.get(&k),
+            None => self.ids.get(m.exps()),
+        };
+        match found {
             Some(&id) => (id, false),
             None => (self.insert(m.clone()), true),
         }
     }
 
+    // Packed key of a product, when it fits.
+    fn product_key(a: &Monomial, b: &Monomial) -> Option<u128> {
+        let k = pack(a.exps())? + pack(b.exps())?;
+        (k & LANES == 0).then_some(k)
+    }
+
     fn intern_product(&mut self, a: &Monomial, b: &Monomial) -> (u32, bool) {
+        if let Some(k) = Self::product_key(a, b) {
+            if let Some(&id) = self.packed.get(&k) {
+                return (id, false);
+            }
+            return (self.insert(a * b), true);
+        }
         self.scratch.clear();
         self.scratch
             .extend(a.exps().iter().zip(b.exps()).map(|(x, y)| x + y));
@@ -419,9 +451,54 @@ impl MonomialTable {
     #[allow(clippy::expect_used)] // More than 2^32 matrix columns cannot fit in practical memory.
     fn insert(&mut self, m: Monomial) -> u32 {
         let id = u32::try_from(self.monomials.len()).expect("F4 matrix exceeds u32 columns");
-        self.monomials.push(m.clone());
-        self.ids.insert(Key(m), id);
+        match pack(m.exps()) {
+            Some(k) => self.packed.insert(k, id),
+            None => self.ids.insert(Key(m.clone()), id),
+        };
+        self.monomials.push(m);
         id
+    }
+}
+
+// Monomials first met during one level of symbolic preprocessing, interned by
+// concurrent workers into shards and numbered after the table's columns.
+struct Fresh {
+    next: AtomicU32,
+    shards: Vec<Mutex<HashMap<u128, u32>>>,
+}
+impl Fresh {
+    const SHARDS: usize = 64;
+
+    fn new(next: usize) -> Self {
+        Self {
+            next: AtomicU32::new(next as u32),
+            shards: (0..Self::SHARDS).map(|_| Mutex::default()).collect(),
+        }
+    }
+
+    fn intern(&self, k: u128) -> u32 {
+        let h = ((k >> 64) as u64 ^ k as u64).wrapping_mul(0x9e37_79b9_7f4a_7c15);
+        let shard = &self.shards[(h >> 58) as usize];
+        let mut map = shard.lock().unwrap_or_else(PoisonError::into_inner);
+        *map.entry(k)
+            .or_insert_with(|| self.next.fetch_add(1, Ordering::Relaxed))
+    }
+
+    // Append the new monomials to the table in id order, returning their ids.
+    fn drain(self, table: &mut MonomialTable, nvars: usize) -> Vec<u32> {
+        let mut new: Vec<(u32, u128)> = self
+            .shards
+            .into_iter()
+            .flat_map(|m| m.into_inner().unwrap_or_else(PoisonError::into_inner))
+            .map(|(k, id)| (id, k))
+            .collect();
+        new.sort_unstable();
+        new.into_iter()
+            .map(|(_, k)| {
+                let exps: Vec<u32> = (0..nvars).map(|v| (k >> (8 * v)) as u32 & 0xff).collect();
+                table.insert(Monomial::new(exps.as_slice()))
+            })
+            .collect()
     }
 }
 
@@ -611,55 +688,87 @@ impl<F: F4Field> State<F> {
                 }
             }
         }
-        let mut pivots = Vec::new();
-        let mut rows = Vec::new();
-        let mut queue: Vec<u32> = Vec::new();
-        let visit = |i: usize, mult: &Monomial, table: &mut MonomialTable, queue: &mut Vec<u32>| {
-            let mut columns = Vec::with_capacity(self.basis[i].terms.len());
-            for (m, _) in &self.basis[i].terms {
-                let (id, fresh) = table.intern_product(m, mult);
-                if fresh {
-                    queue.push(id);
-                }
-                columns.push(id);
-            }
-            PlannedRow {
-                basis: i,
-                terms: if traced {
-                    self.basis[i].support()
-                } else {
-                    Vec::new()
-                },
-                columns,
-            }
-        };
         let mut pivot_leads: HashSet<u32> = by_lcm.keys().copied().collect();
         let mut groups: Vec<_> = by_lcm.into_iter().collect();
         groups.sort_by(|(a, _), (b, _)| {
             order.compare(&table.monomials[*b as usize], &table.monomials[*a as usize])
         });
+        // Rows to build, flagged when they are pivots: the shortest multiple per lcm.
+        let mut level: Vec<(usize, Monomial, bool)> = Vec::new();
         for (_, mut group) in groups {
             group.sort_by_key(|(i, _)| (self.basis[*i].terms.len(), *i));
-            for (k, (i, mult)) in group.into_iter().enumerate() {
-                let row = visit(i, &mult, &mut table, &mut queue);
-                if k == 0 {
-                    pivots.push(row);
+            level.extend(
+                group
+                    .into_iter()
+                    .enumerate()
+                    .map(|(k, (i, m))| (i, m, k == 0)),
+            );
+        }
+        let nvars = self.basis.first().map_or(0, |g| g.nvars);
+        let mut pivots = Vec::new();
+        let mut rows = Vec::new();
+        // Each level interns its products in parallel and adds a reducer for each new
+        // monomial as the next level.
+        while !level.is_empty() {
+            let fresh = Fresh::new(table.monomials.len());
+            let found = map_rows(
+                &level,
+                // Each worker caches the fresh ids it has seen, sparing the shard locks.
+                HashMap::<u128, u32>::default,
+                |(i, mult, _), seen| {
+                    let mut column = |(m, _): &(Monomial, F)| {
+                        let Some(k) = MonomialTable::product_key(m, mult) else {
+                            return u32::MAX;
+                        };
+                        match table.packed.get(&k) {
+                            Some(&id) => id,
+                            None => *seen.entry(k).or_insert_with(|| fresh.intern(k)),
+                        }
+                    };
+                    self.basis[*i]
+                        .terms
+                        .iter()
+                        .map(&mut column)
+                        .collect::<Vec<_>>()
+                },
+            );
+            let mut fresh = fresh.drain(&mut table, nvars);
+            for ((i, mult, pivot), mut columns) in level.into_iter().zip(found) {
+                // Products too large to pack are interned here.
+                let terms = &self.basis[i].terms;
+                for (c, (m, _)) in columns.iter_mut().zip(terms) {
+                    if *c == u32::MAX {
+                        let (id, new) = table.intern_product(m, &mult);
+                        if new {
+                            fresh.push(id);
+                        }
+                        *c = id;
+                    }
+                }
+                let row = PlannedRow {
+                    basis: i,
+                    terms: if traced {
+                        self.basis[i].support()
+                    } else {
+                        Vec::new()
+                    },
+                    columns,
+                };
+                if pivot {
+                    pivots.push(row)
                 } else {
-                    rows.push(row);
+                    rows.push(row)
                 }
             }
-        }
-        while let Some(id) = queue.pop() {
-            if pivot_leads.contains(&id) {
-                continue;
-            }
-            let m = &table.monomials[id as usize];
-            if let Some(i) = self.reducer(m)
-                && let Some(mult) = m.quo(self.lm(i))
-            {
-                pivots.push(visit(i, &mult, &mut table, &mut queue));
-                pivot_leads.insert(id);
-            }
+            level = fresh
+                .into_iter()
+                .filter(|&id| pivot_leads.insert(id))
+                .filter_map(|id| {
+                    let m = &table.monomials[id as usize];
+                    let i = self.reducer(m)?;
+                    Some((i, m.quo(self.lm(i))?, true))
+                })
+                .collect();
         }
         let mut ids: Vec<usize> = (0..table.monomials.len()).collect();
         ids.sort_by(|&a, &b| order.compare(&table.monomials[b], &table.monomials[a]));
@@ -963,24 +1072,51 @@ fn echelon<F: Clone + Send + Sync, K: Kernel<F>>(
         known,
         slots: (0..ncols).map(|_| OnceLock::new()).collect(),
     };
-    let mut order: Vec<usize> = (0..rows.len())
-        .filter(|&i| !rows[i].columns.is_empty())
-        .collect();
-    order.sort_by_key(|&i| (rows[i].columns[0], rows[i].columns.len()));
+    let order = sorted(rows);
     map_rows(
         &order,
         || kernel.scratch(),
         |&i, s| {
-            let mut r = kernel.reduce(&rows[i], &claimed, s);
-            while let Some(&lead) = r.columns.first() {
-                kernel.normalize(&mut r);
-                match claimed.slots[lead as usize].set((i, r)) {
-                    Ok(()) => return,
-                    Err((_, lost)) => r = kernel.reduce(&lost, &claimed, s),
-                }
-            }
+            let r = kernel.reduce(&rows[i], &claimed, s);
+            claim(kernel, &claimed, i, r, s);
         },
     );
+    back_substitute(kernel, claimed, ncols)
+}
+
+// Nonempty row indices by leading column, then length.
+fn sorted<F>(rows: &[SparseRow<F>]) -> Vec<usize> {
+    let mut order: Vec<usize> = (0..rows.len())
+        .filter(|&i| !rows[i].columns.is_empty())
+        .collect();
+    order.sort_by_key(|&i| (rows[i].columns[0], rows[i].columns.len()));
+    order
+}
+
+// Claim the leading column of a reduced row, reducing by the winner after each lost
+// race. Returns whether a new pivot was stored.
+fn claim<F: Send + Sync, K: Kernel<F>>(
+    kernel: &K,
+    claimed: &Claimed<'_, F>,
+    i: usize,
+    mut r: SparseRow<F>,
+    s: &mut K::Scratch,
+) -> bool {
+    while let Some(&lead) = r.columns.first() {
+        kernel.normalize(&mut r);
+        match claimed.slots[lead as usize].set((i, r)) {
+            Ok(()) => return true,
+            Err((_, lost)) => r = kernel.reduce(&lost, claimed, s),
+        }
+    }
+    false
+}
+
+fn back_substitute<F: Clone + Send + Sync, K: Kernel<F>>(
+    kernel: &K,
+    claimed: Claimed<'_, F>,
+    ncols: usize,
+) -> (Vec<SparseRow<F>>, Vec<usize>) {
     let (live, new): (Vec<usize>, Vec<SparseRow<F>>) = claimed
         .slots
         .into_iter()
@@ -1072,7 +1208,97 @@ fn echelonize_modular<F: ModularField + Send + Sync>(
     rows: &[SparseRow<F>],
     ncols: usize,
 ) -> Vec<SparseRow<F>> {
-    echelonize_modular_traced(pivots, rows, ncols).0
+    // Tiny fields leave too few multipliers for random combinations to be reliable.
+    match modulus(pivots, rows) {
+        None => echelonize_generic(pivots, rows, ncols),
+        Some(p) if p < 1 << 12 => echelonize_modular_traced(pivots, rows, ncols).0,
+        Some(p) if p <= u64::from(u16::MAX) => random_residues::<F, u16>(p, pivots, rows, ncols),
+        Some(p) if p <= u64::from(u32::MAX) => random_residues::<F, u32>(p, pivots, rows, ncols),
+        Some(p) => random_residues::<F, u64>(p, pivots, rows, ncols),
+    }
+}
+
+fn random_residues<F: ModularField + Send + Sync, C: Residue>(
+    p: u64,
+    pivots: &Reducers<F>,
+    rows: &[SparseRow<F>],
+    ncols: usize,
+) -> Vec<SparseRow<F>> {
+    let (known, pending) = residues::<F, C>(p, pivots, rows);
+    let known = Table::new(pivots.view(&known), ncols);
+    lift(echelon_random(p, &known, &pending, ncols), p)
+}
+
+// Monte Carlo echelon form. Sorted rows are split into about sqrt(n / 3) blocks, and
+// each block is replaced by random linear combinations of its rows, reduced and
+// claimed like ordinary rows, until `zeros` consecutive combinations vanish. A block
+// that still has an independent row escapes with probability at most p^-zeros, so
+// only about rank + blocks dense reductions are needed instead of one per row.
+fn echelon_random<C: Residue>(
+    p: u64,
+    known: &Table<'_, C>,
+    rows: &[SparseRow<C>],
+    ncols: usize,
+) -> Vec<SparseRow<C>> {
+    let kernel = Dense { p, ncols };
+    let claimed = Claimed {
+        known,
+        slots: (0..ncols).map(|_| OnceLock::new()).collect(),
+    };
+    let order = sorted(rows);
+    let nblocks = (order.len() as f64 / 3.0).sqrt() as usize + 1;
+    let blocks: Vec<&[usize]> = order.chunks(order.len().div_ceil(nblocks).max(1)).collect();
+    let zeros = 40u32.div_ceil(p.ilog2()).max(2);
+    let block = |(b, block): (usize, &&[usize]), buf: &mut Vec<u64>| {
+        // Unreduced sums only when the sweep can also defer every reduction.
+        let lazy = p < (1 << 31) && fits(ncols + block.len(), p);
+        let mut rng = Rng::new(b as u64);
+        let (mut found, mut run) = (0, 0);
+        while found < block.len() && run < zeros {
+            let (mut lo, mut hi) = (usize::MAX, 0);
+            for &i in *block {
+                let m = rng.nonzero(p);
+                let (cols, coefs) = (&rows[i].columns, &rows[i].coefficients);
+                for (&c, &v) in cols.iter().zip(coefs) {
+                    let cell = &mut buf[c as usize];
+                    *cell = if lazy {
+                        *cell + m * v.into()
+                    } else {
+                        add_mod(*cell, mul_mod(m, v.into(), p), p)
+                    };
+                }
+                let (l, h) = span(cols);
+                (lo, hi) = (lo.min(l), hi.max(h));
+            }
+            let terms = if lazy { block.len() } else { 0 };
+            let r = sweep(buf, (lo, hi), terms, &claimed, p);
+            if claim(&kernel, &claimed, b, r, buf) {
+                (found, run) = (found + 1, 0);
+            } else {
+                run += 1;
+            }
+        }
+    };
+    let scratch = || Kernel::<C>::scratch(&kernel);
+    #[cfg(feature = "parallel")]
+    blocks
+        .par_iter()
+        .enumerate()
+        .for_each_init(scratch, |buf, item| block(item, buf));
+    #[cfg(not(feature = "parallel"))]
+    {
+        let mut buf = scratch();
+        blocks
+            .iter()
+            .enumerate()
+            .for_each(|item| block(item, &mut buf));
+    }
+    back_substitute(&kernel, claimed, ncols).0
+}
+
+// Whether `terms` products of residues plus one residue fit in 64 bits.
+fn fits(terms: usize, p: u64) -> bool {
+    (terms as u128) * u128::from(p - 1).pow(2) + u128::from(p - 1) <= u128::from(u64::MAX)
 }
 
 fn echelonize_modular_traced<F: ModularField + Send + Sync>(
@@ -1200,17 +1426,28 @@ fn reduce_dense<C: Residue>(
     buf: &mut [u64],
     p: u64,
 ) -> SparseRow<C> {
-    const LIMIT: u64 = 1 << 63;
-    let small = p < (1 << 31);
-    let ncols = buf.len();
     // `buf` is all zero on entry and is cleared again before returning.
-    // At most ncols triangular pivot eliminations can contribute to any cell.
-    let deferred = small
-        && (ncols as u128) * u128::from(p - 1).pow(2) + u128::from(p - 1) <= u128::from(u64::MAX);
     for (&c, &v) in row.columns.iter().zip(&row.coefficients) {
         buf[c as usize] = v.into();
     }
-    let (lo, mut hi) = span(&row.columns);
+    let (lo, hi) = span(&row.columns);
+    sweep(buf, (lo, hi), 0, pivots, p)
+}
+
+// Eliminate pivot columns from `buf[lo..=hi]` and drain it into a row. Each cell holds
+// a residue plus at most `terms` unreduced products of two residues.
+fn sweep<C: Residue>(
+    buf: &mut [u64],
+    (lo, mut hi): (usize, usize),
+    terms: usize,
+    pivots: &impl Pivots<C>,
+    p: u64,
+) -> SparseRow<C> {
+    const LIMIT: u64 = 1 << 63;
+    let small = p < (1 << 31);
+    let ncols = buf.len();
+    // At most ncols triangular pivot eliminations can contribute to any cell.
+    let deferred = small && fits(ncols + terms, p);
     // Cells behind the sweep are final, so leftovers are reduced in place and counted,
     // and a row that reduces to zero needs no second pass.
     let (mut first, mut left) = (usize::MAX, 0);
