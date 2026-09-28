@@ -86,22 +86,22 @@ Reduced basis with `groebner_basis_f4` over GF(32003) in GRevLex, on Apple M5 si
 
 | System    | Basis size |   Time |
 | --------- | ---------: | -----: |
-| chandra12 |       2048 | 0.49 s |
-| chandra13 |       4096 | 1.98 s |
-| cyclic8   |        372 | 0.18 s |
-| cyclic9   |       1344 | 8.67 s |
-| eco12     |        743 | 0.30 s |
-| eco13     |       1465 | 1.19 s |
-| eco14     |       2852 | 8.45 s |
-| henrion7  |        415 | 0.35 s |
-| henrion8  |       2344 | 58.2 s |
-| katsura11 |       1050 | 0.64 s |
-| katsura12 |       2091 | 4.05 s |
-| katsura13 |       4140 | 26.7 s |
-| noon9     |       3682 | 1.88 s |
-| noon10    |      10273 | 13.2 s |
+| chandra12 |       2048 | 0.45 s |
+| chandra13 |       4096 | 1.82 s |
+| cyclic8   |        372 | 0.17 s |
+| cyclic9   |       1344 | 8.47 s |
+| eco12     |        743 | 0.29 s |
+| eco13     |       1465 | 1.13 s |
+| eco14     |       2852 | 7.01 s |
+| henrion7  |        415 | 0.32 s |
+| henrion8  |       2344 | 54.7 s |
+| katsura11 |       1050 | 0.62 s |
+| katsura12 |       2091 | 3.50 s |
+| katsura13 |       4140 | 23.5 s |
+| noon9     |       3682 | 1.80 s |
+| noon10    |      10273 | 12.6 s |
 | reimer7   |        227 | 0.14 s |
-| reimer8   |        612 | 2.97 s |
+| reimer8   |        612 | 2.93 s |
 
 Inputs are in [`benches/data`](benches/data).
 

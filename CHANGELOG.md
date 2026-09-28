@@ -2,8 +2,12 @@
 
 ## Unreleased
 
-- Keep packed monomial keys for every F4 basis term, so a preprocessing product is
-  one add of the term key and the packed multiplier.
+- Store F4 basis elements as coefficients and packed term keys, so a preprocessing
+  product is one add of the term key and the packed multiplier. Monomials are kept
+  only for terms that do not pack or when a trace records the support.
+- Move F4 matrix columns out of the plan instead of copying them, and keep only the
+  leading terms during final interreduction. Peak memory falls by a tenth to over a
+  third, from 8.6 GB to 5.3 GB on henrion8.
 - Prune F4 critical pairs with packed lcm keys, testing each new pair against
   lower degree lcms in parallel. The kept pairs match the sequential criterion.
 - Search reducers for new preprocessing monomials in parallel, testing divisibility

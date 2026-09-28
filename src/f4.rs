@@ -28,7 +28,7 @@ use polycore::sample::Rng;
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 use rustc_hash::{FxHashMap as HashMap, FxHashSet as HashSet};
-use std::borrow::Borrow;
+use std::borrow::{Borrow, Cow};
 use std::hash::{Hash, Hasher};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Mutex, OnceLock, PoisonError};
@@ -71,19 +71,21 @@ impl<F> Reducers<F> {
     }
 }
 
-// Known pivots as multiples of `basis` elements with the given columns.
-fn reducers<F: Clone>(
-    basis: &[Polynomial<F>],
+// Known pivots as multiples of `n` basis elements, given their coefficients, with the
+// given columns.
+fn reducers<F>(
+    n: usize,
+    coefficients_of: impl Fn(usize) -> Vec<F>,
     rows: impl IntoIterator<Item = (usize, Vec<u32>)>,
 ) -> Reducers<F> {
-    let mut shared = vec![usize::MAX; basis.len()];
+    let mut shared = vec![usize::MAX; n];
     let mut coefficients = Vec::new();
     let rows = rows
         .into_iter()
         .map(|(i, columns)| {
             if shared[i] == usize::MAX {
                 shared[i] = coefficients.len();
-                coefficients.push(basis[i].terms.iter().map(|(_, c)| c.clone()).collect());
+                coefficients.push(coefficients_of(i));
             }
             (shared[i], columns)
         })
@@ -246,6 +248,7 @@ fn compute_on<F: F4Field>(
     let input = prepare_input(polynomials)?;
     let order = input[0].order.clone();
     let nvars = input[0].nvars;
+    let traced = trace.is_some();
     let mut state = State {
         basis: Vec::new(),
         active: Vec::new(),
@@ -253,49 +256,53 @@ fn compute_on<F: F4Field>(
         pairs: Vec::new(),
         masks: Vec::new(),
         keys: Vec::new(),
-        term_keys: Vec::new(),
+        nvars,
     };
     for poly in input {
-        state.update(poly);
+        state.update(Element::new(&poly, traced));
     }
     if let Some(t) = trace.as_deref_mut() {
-        t.input_leads = state.basis.iter().filter_map(|p| p.lm().cloned()).collect();
+        t.input_leads = state.basis.iter().map(|g| g.lm.clone()).collect();
     }
     while !state.pairs.is_empty() {
         let selected = state.select();
-        let plan = state.symbolic_preprocessing(&selected, &order, trace.is_some());
-        let matrix = plan
-            .execute(&state.basis)
-            .unwrap_or_else(|| unreachable!("fresh matrix plan"));
-        let (new_rows, live) = if trace.is_some() {
-            F::echelonize_traced(&matrix.pivots, &matrix.rows, plan.columns.len())
-        } else {
-            (
-                F::echelonize(&matrix.pivots, &matrix.rows, plan.columns.len()),
-                Vec::new(),
-            )
+        let mut plan = state.symbolic_preprocessing(&selected, &order, traced);
+        let (new_rows, live) = {
+            let matrix = state.matrix(&mut plan, traced);
+            if traced {
+                F::echelonize_traced(&matrix.pivots, &matrix.rows, plan.columns.len())
+            } else {
+                (
+                    F::echelonize(&matrix.pivots, &matrix.rows, plan.columns.len()),
+                    Vec::new(),
+                )
+            }
         };
-        let mut new_polys: Vec<Polynomial<F>> = new_rows
+        let keys: Vec<Option<u128>> = plan.columns.iter().map(|m| pack(m.exps())).collect();
+        let mut new: Vec<Element<F>> = new_rows
             .into_iter()
-            .map(|row| decode(&row, &plan.columns, nvars, &order))
+            .filter(|row| !row.columns.is_empty())
+            .map(|row| Element::decode(row, &plan.columns, &keys, traced))
             .collect();
-        new_polys.sort_by(|a, b| crate::groebner::compare_leading(a, b, &order));
+        new.sort_by(|a, b| order.compare(&a.lm, &b.lm));
         if let Some(t) = trace.as_deref_mut() {
-            let leads = new_polys.iter().filter_map(|p| p.lm().cloned()).collect();
+            let leads = new.iter().map(|g| g.lm.clone()).collect();
             t.rounds.push(TraceRound { plan, leads, live });
         }
-        for poly in new_polys {
-            state.update(poly);
+        for g in new {
+            state.update(g);
         }
     }
     if let Some(t) = trace {
         t.active = state.active.clone();
     }
+    // Terms share one monomial per distinct exponent vector, as decoded rows would.
+    let mut cache = HashMap::default();
     let basis = state
         .basis
         .into_iter()
         .zip(state.active)
-        .filter_map(|(poly, active)| active.then_some(poly))
+        .filter_map(|(g, active)| active.then(|| g.polynomial(nvars, &order, &mut cache)))
         .collect();
     finish(basis, canonicalize)
 }
@@ -376,8 +383,96 @@ struct Pair {
     mask: u64,
 }
 
+// A basis element: its coefficients in term order, the packed monomials of its terms when
+// all fit, and otherwise, or when a trace records the support, the monomials themselves.
+struct Element<F> {
+    lm: Monomial,
+    coefficients: Vec<F>,
+    keys: Option<Box<[u128]>>,
+    monomials: Vec<Monomial>,
+}
+
+impl<F: Field> Element<F> {
+    fn new(p: &Polynomial<F>, traced: bool) -> Self {
+        let keys: Option<Box<[u128]>> = p.terms.iter().map(|(m, _)| pack(m.exps())).collect();
+        Self {
+            lm: p.terms[0].0.clone(),
+            coefficients: p.terms.iter().map(|(_, c)| c.clone()).collect(),
+            monomials: if keys.is_none() || traced {
+                p.support()
+            } else {
+                Vec::new()
+            },
+            keys,
+        }
+    }
+
+    fn decode(
+        row: SparseRow<F>,
+        columns: &[Monomial],
+        keys: &[Option<u128>],
+        traced: bool,
+    ) -> Self {
+        let packed: Option<Box<[u128]>> = row.columns.iter().map(|&c| keys[c as usize]).collect();
+        Self {
+            lm: columns[row.columns[0] as usize].clone(),
+            monomials: if packed.is_none() || traced {
+                row.columns
+                    .iter()
+                    .map(|&c| columns[c as usize].clone())
+                    .collect()
+            } else {
+                Vec::new()
+            },
+            keys: packed,
+            coefficients: row.coefficients,
+        }
+    }
+
+    fn len(&self) -> usize {
+        self.coefficients.len()
+    }
+
+    fn term(&self, k: usize, nvars: usize) -> Cow<'_, Monomial> {
+        match (self.monomials.get(k), &self.keys) {
+            (Some(m), _) => Cow::Borrowed(m),
+            (None, Some(keys)) => Cow::Owned(unpack(keys[k], nvars)),
+            (None, None) => unreachable!("an element keeps its monomials or their keys"),
+        }
+    }
+
+    fn polynomial(
+        self,
+        nvars: usize,
+        order: &MonomialOrder,
+        cache: &mut HashMap<u128, Monomial>,
+    ) -> Polynomial<F> {
+        let terms = match (self.monomials.is_empty(), &self.keys) {
+            (true, Some(keys)) => keys
+                .iter()
+                .zip(self.coefficients)
+                .map(|(&k, c)| {
+                    let m = cache.entry(k).or_insert_with(|| unpack(k, nvars));
+                    term(c, m.clone())
+                })
+                .collect(),
+            _ => self
+                .monomials
+                .into_iter()
+                .zip(self.coefficients)
+                .map(|(m, c)| term(c, m))
+                .collect(),
+        };
+        Polynomial {
+            terms,
+            nvars,
+            order: order.clone(),
+        }
+    }
+}
+
 struct State<F> {
-    basis: Vec<Polynomial<F>>,
+    basis: Vec<Element<F>>,
     active: Vec<bool>,
     // Active indices by (term count, index), so the first divisor found is the shortest.
     by_size: Vec<usize>,
@@ -385,8 +480,7 @@ struct State<F> {
     masks: Vec<u64>,
     // Packed leading monomials, when they fit.
     keys: Vec<Option<u128>>,
-    // Packed monomials of every term, when all fit.
-    term_keys: Vec<Option<Box<[u128]>>>,
+    nvars: usize,
 }
 
 struct Matrix<F> {
@@ -424,6 +518,11 @@ fn pack(exps: &[u32]) -> Option<u128> {
     exps.iter()
         .rev()
         .try_fold(0u128, |acc, &e| (e < 128).then(|| acc << 8 | u128::from(e)))
+}
+
+fn unpack(k: u128, nvars: usize) -> Monomial {
+    let exps: Vec<u32> = (0..nvars).map(|v| (k >> (8 * v)) as u32 & 0xff).collect();
+    Monomial::new(exps.as_slice())
 }
 
 // Lanewise maximum of packed monomials: the lcm.
@@ -576,10 +675,7 @@ impl Fresh {
             .collect();
         new.sort_unstable();
         new.into_iter()
-            .map(|(_, k)| {
-                let exps: Vec<u32> = (0..nvars).map(|v| (k >> (8 * v)) as u32 & 0xff).collect();
-                table.insert(Monomial::new(exps.as_slice()))
-            })
+            .map(|(_, k)| table.insert(unpack(k, nvars)))
             .collect()
     }
 }
@@ -588,6 +684,7 @@ struct PlannedRow {
     basis: usize,
     // Support at planning time, kept only when recording a trace.
     terms: Vec<Monomial>,
+    // Taken by the matrix unless the plan is traced.
     columns: Vec<u32>,
 }
 struct MatrixPlan {
@@ -596,10 +693,7 @@ struct MatrixPlan {
     rows: Vec<PlannedRow>,
 }
 impl MatrixPlan {
-    fn execute<F: Field>(&self, basis: &[Polynomial<F>]) -> Option<Matrix<F>> {
-        self.execute_rows(basis, 0..self.rows.len())
-    }
-
+    // Some rows of a traced plan, over a replayed basis.
     fn execute_rows<F: Field>(
         &self,
         basis: &[Polynomial<F>],
@@ -608,10 +702,6 @@ impl MatrixPlan {
         // Columns of the basis polynomial, which may have lost terms since planning.
         let columns = |row: &PlannedRow| {
             let p = basis.get(row.basis)?;
-            if row.terms.is_empty() {
-                // Planned from this basis without a trace: terms align with columns.
-                return Some(row.columns.clone());
-            }
             let mut columns = Vec::with_capacity(p.terms.len());
             let mut k = 0;
             for (m, _) in &p.terms {
@@ -643,7 +733,11 @@ impl MatrixPlan {
             })
             .collect::<Option<_>>()?;
         Some(Matrix {
-            pivots: reducers(basis, pivots),
+            pivots: reducers(
+                basis.len(),
+                |i| basis[i].terms.iter().map(|(_, c)| c.clone()).collect(),
+                pivots,
+            ),
             rows,
         })
     }
@@ -651,9 +745,41 @@ impl MatrixPlan {
 
 impl<F: F4Field> State<F> {
     fn lm(&self, i: usize) -> &Monomial {
-        self.basis[i]
-            .leading_monomial()
-            .unwrap_or_else(|| unreachable!("basis polynomials are nonzero"))
+        &self.basis[i].lm
+    }
+
+    // The matrix of a plan made from this basis. Unless the plan is traced, each row's
+    // columns are freed as they are copied, so only one row is held twice, and the copies
+    // lie together, which elimination reads faster than the plan's scattered vectors.
+    fn matrix(&self, plan: &mut MatrixPlan, traced: bool) -> Matrix<F> {
+        let columns = |row: &mut PlannedRow| {
+            if traced {
+                row.columns.clone()
+            } else {
+                std::mem::take(&mut row.columns).as_slice().to_vec()
+            }
+        };
+        let pivots: Vec<_> = plan
+            .pivots
+            .iter_mut()
+            .map(|row| (row.basis, columns(row)))
+            .collect();
+        let rows = plan
+            .rows
+            .iter_mut()
+            .map(|row| SparseRow {
+                columns: columns(row),
+                coefficients: self.basis[row.basis].coefficients.clone(),
+            })
+            .collect();
+        Matrix {
+            pivots: reducers(
+                self.basis.len(),
+                |i| self.basis[i].coefficients.clone(),
+                pivots,
+            ),
+            rows,
+        }
     }
 
     fn pair(&self, i: usize, j: usize) -> Pair {
@@ -668,31 +794,25 @@ impl<F: F4Field> State<F> {
     }
 
     // Gebauer-Moller update (Becker and Weispfenning, section 5.5).
-    fn update(&mut self, h: Polynomial<F>) {
-        let h = if h.leading_coefficient().is_some_and(num_traits::One::is_one) {
-            h
-        } else {
-            h.make_monic()
-        };
-        let Some(lm_h) = h.leading_monomial().cloned() else {
-            return;
-        };
+    fn update(&mut self, mut h: Element<F>) {
+        if !h.coefficients[0].is_one()
+            && let Some(inv) = h.coefficients[0].inverse()
+        {
+            for c in &mut h.coefficients {
+                *c = c.clone() * inv.clone();
+            }
+        }
+        let lm_h = h.lm.clone();
         let t = self.basis.len();
         let mask_h = divisibility_mask(&lm_h);
         self.masks.push(mask_h);
         self.keys.push(pack(lm_h.exps()));
-        self.term_keys
-            .push(h.terms.iter().map(|(m, _)| pack(m.exps())).collect());
         self.basis.push(h);
         self.active.push(true);
         let kept = self.new_pairs(t);
 
         let basis = &self.basis;
-        let lm = |i: usize| {
-            basis[i]
-                .leading_monomial()
-                .unwrap_or_else(|| unreachable!("basis polynomials are nonzero"))
-        };
+        let lm = |i: usize| &basis[i].lm;
         let lcm_is = |a: &Monomial, l: &Monomial| {
             a.exps()
                 .iter()
@@ -714,7 +834,7 @@ impl<F: F4Field> State<F> {
         }
         let active = &self.active;
         self.by_size.retain(|&g| active[g]);
-        let size = |g: usize| (basis[g].terms.len(), g);
+        let size = |g: usize| (basis[g].len(), g);
         let at = self.by_size.partition_point(|&g| size(g) < size(t));
         self.by_size.insert(at, t);
     }
@@ -801,7 +921,7 @@ impl<F: F4Field> State<F> {
         // Rows to build, flagged when they are pivots: the shortest multiple per lcm.
         let mut level: Vec<(usize, Monomial, bool)> = Vec::new();
         for (_, mut group) in groups {
-            group.sort_by_key(|(i, _)| (self.basis[*i].terms.len(), *i));
+            group.sort_by_key(|(i, _)| (self.basis[*i].len(), *i));
             level.extend(
                 group
                     .into_iter()
@@ -809,7 +929,7 @@ impl<F: F4Field> State<F> {
                     .map(|(k, (i, m))| (i, m, k == 0)),
             );
         }
-        let nvars = self.basis.first().map_or(0, |g| g.nvars);
+        let nvars = self.nvars;
         let mut pivots = Vec::new();
         let mut rows = Vec::new();
         // Each level interns its products in parallel and adds a reducer for each new
@@ -828,12 +948,11 @@ impl<F: F4Field> State<F> {
                             None => *seen.entry(k).or_insert_with(|| fresh.intern(k)),
                         },
                     };
-                    match (&self.term_keys[*i], pack(mult.exps())) {
+                    let g = &self.basis[*i];
+                    match (&g.keys, pack(mult.exps())) {
                         (Some(keys), Some(m)) => keys.iter().map(|k| column(Some(k + m))).collect(),
-                        _ => self.basis[*i]
-                            .terms
-                            .iter()
-                            .map(|(t, _)| column(MonomialTable::product_key(t, mult)))
+                        _ => (0..g.len())
+                            .map(|k| column(MonomialTable::product_key(&g.term(k, nvars), mult)))
                             .collect::<Vec<_>>(),
                     }
                 },
@@ -841,10 +960,10 @@ impl<F: F4Field> State<F> {
             let mut fresh = fresh.drain(&mut table, nvars);
             for ((i, mult, pivot), mut columns) in level.into_iter().zip(found) {
                 // Products too large to pack are interned here.
-                let terms = &self.basis[i].terms;
-                for (c, (m, _)) in columns.iter_mut().zip(terms) {
+                let g = &self.basis[i];
+                for (k, c) in columns.iter_mut().enumerate() {
                     if *c == u32::MAX {
-                        let (id, new) = table.intern_product(m, &mult);
+                        let (id, new) = table.intern_product(&g.term(k, nvars), &mult);
                         if new {
                             fresh.push(id);
                         }
@@ -854,7 +973,7 @@ impl<F: F4Field> State<F> {
                 let row = PlannedRow {
                     basis: i,
                     terms: if traced {
-                        self.basis[i].support()
+                        g.monomials.clone()
                     } else {
                         Vec::new()
                     },
@@ -911,7 +1030,16 @@ fn finish<F: F4Field>(
     }
     let first = basis.first().ok_or(GroebnerError::EmptyInput)?;
     let (nvars, order) = (first.nvars, first.order.clone());
-    let basis: Vec<_> = basis.iter().map(PolynomialExt::make_monic).collect();
+    let basis: Vec<_> = basis
+        .into_iter()
+        .map(|g| {
+            if g.leading_coefficient().is_some_and(num_traits::One::is_one) {
+                g
+            } else {
+                g.make_monic()
+            }
+        })
+        .collect();
     let masks: Vec<u64> = basis
         .iter()
         .map(|g| divisibility_mask(&g.terms[0].0))
@@ -930,7 +1058,7 @@ fn finish<F: F4Field>(
         }
         id
     };
-    let mut tails: Vec<Vec<u32>> = basis
+    let tails: Vec<Vec<u32>> = basis
         .iter()
         .map(|g| {
             g.terms[1..]
@@ -939,7 +1067,7 @@ fn finish<F: F4Field>(
                 .collect()
         })
         .collect();
-    let mut pivots: Vec<(usize, Monomial, Vec<u32>)> = Vec::new();
+    let mut pivots: Vec<(usize, Vec<u32>)> = Vec::new();
     while let Some(id) = queue.pop() {
         let m = table.monomials[id as usize].clone();
         let Some(i) = reducer(&m) else { continue };
@@ -950,38 +1078,42 @@ fn finish<F: F4Field>(
         for (t, _) in &basis[i].terms[1..] {
             columns.push(fresh(table.intern_product(t, &mult), &mut queue));
         }
-        pivots.push((i, mult, columns));
+        pivots.push((i, columns));
     }
     let mut ids: Vec<usize> = (0..table.monomials.len()).collect();
     ids.sort_by(|&a, &b| order.compare(&table.monomials[b], &table.monomials[a]));
     let index = column_index(&ids);
     let columns: Vec<Monomial> = ids.iter().map(|&id| table.monomials[id].clone()).collect();
-    let row = |g: &Polynomial<F>, cols: &mut [u32], skip: usize| {
+    let reindex = |mut cols: Vec<u32>| {
         cols.iter_mut().for_each(|c| *c = index[*c as usize]);
-        SparseRow {
-            columns: cols.to_vec(),
-            coefficients: g.terms[skip..].iter().map(|(_, c)| c.clone()).collect(),
-        }
+        cols
     };
     let pivot_rows = reducers(
-        &basis,
-        pivots.into_iter().map(|(i, _, mut cols)| {
-            cols.iter_mut().for_each(|c| *c = index[*c as usize]);
-            (i, cols)
-        }),
+        basis.len(),
+        |i| basis[i].terms.iter().map(|(_, c)| c.clone()).collect(),
+        pivots.into_iter().map(|(i, cols)| (i, reindex(cols))),
     );
     let tail_rows: Vec<_> = basis
         .iter()
-        .zip(&mut tails)
-        .map(|(g, cols)| row(g, cols, 1))
+        .zip(tails)
+        .map(|(g, cols)| SparseRow {
+            columns: reindex(cols),
+            coefficients: g.terms[1..].iter().map(|(_, c)| c.clone()).collect(),
+        })
+        .collect();
+    // The rows hold everything else, so only the leading terms are kept.
+    let leads: Vec<_> = basis
+        .into_iter()
+        .map(|mut g| g.terms.swap_remove(0))
         .collect();
     let reduced = F::reduce_rows(&pivot_rows, &tail_rows, columns.len());
-    let mut out: Vec<Polynomial<F>> = basis
+    drop((pivot_rows, tail_rows));
+    let mut out: Vec<Polynomial<F>> = leads
         .into_iter()
         .zip(reduced)
-        .map(|(g, tail)| {
+        .map(|(lead, tail)| {
             let mut p = decode(&tail, &columns, nvars, &order);
-            p.terms.insert(0, g.terms[0].clone());
+            p.terms.insert(0, lead);
             p
         })
         .collect();
