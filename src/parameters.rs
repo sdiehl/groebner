@@ -1,5 +1,8 @@
 //! Coefficients in `Q(a, b, ...)`, several parameters, as [`zippel_gcd::Frac`].
 //!
+//! Coefficients are cancelled by `zippel-gcd`, and the ring is built with
+//! [`crate::PolynomialRing::with_parameters`].
+//!
 //! ```
 //! use groebner::{Frac, MonomialOrder, PolynomialRing, groebner_basis_f4};
 //!

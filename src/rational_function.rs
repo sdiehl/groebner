@@ -1,5 +1,8 @@
 //! The field Q(a) of rational functions in one parameter.
 //!
+//! A basis over Q(a) holds for a generic value of the parameter, and [`specialize`]
+//! substitutes a number.
+//!
 //! ```
 //! use groebner::{groebner_basis_f4, MonomialOrder, PolynomialRing, RationalFunction};
 //!

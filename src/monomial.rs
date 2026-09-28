@@ -1,4 +1,7 @@
 //! Monomials and orders supplied by polycore.
+//!
+//! Orders are `Lex`, `GrLex`, `GRevLex`, `MonomialOrder::weighted(weights, tie_break)`,
+//! and product orders via `MonomialOrder::block` or `MonomialOrder::elimination(k, rest)`.
 pub use polycore::{Monomial, Order as MonomialOrder};
 use std::cmp::Ordering;
 /// Compatibility helpers for the 0.3 monomial API.

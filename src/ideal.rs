@@ -20,6 +20,23 @@ use crate::polynomial::Polynomial;
 use crate::{MonomialExt, PolynomialExt};
 use std::sync::OnceLock;
 
+/// An ideal wrapping its reduced Groebner basis.
+///
+/// It answers membership and normal forms, elimination ideals, zero-dimensionality,
+/// the standard monomial basis and its dimension, radical membership, multiplication
+/// matrices, and change of order (FGLM for zero-dimensional ideals).
+///
+/// ```
+/// use groebner::{Ideal, MonomialOrder, PolynomialRing};
+/// use num_rational::BigRational;
+///
+/// let ring = PolynomialRing::<BigRational>::new(["x", "y"], MonomialOrder::GRevLex)?;
+/// let ideal = Ideal::new(ring.parse_many("x^2 + y^2 - 1; x - y^3")?)?;
+/// assert_eq!(ideal.vector_space_dimension(), Some(6));
+/// let lex = ideal.change_order(MonomialOrder::Lex)?;
+/// assert!(lex.contains(&ring.parse("y^6 + y^2 - 1")?)?);
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 #[derive(Debug, Clone)]
 pub struct Ideal<F> {
     basis: Vec<Polynomial<F>>,
@@ -155,6 +172,20 @@ impl<F: Field> Ideal<F> {
     /// Cofactors `h` with `f = sum h[k] * generators()[k]`, or `None` if `f` is not a member.
     ///
     /// The cofactor-tracking basis is computed by Buchberger on first use and cached.
+    /// An external checker can confirm the certificate with [`crate::verify_lift`], which
+    /// uses only ring addition and multiplication.
+    ///
+    /// ```
+    /// use groebner::{Ideal, MonomialOrder, PolynomialRing, verify_lift};
+    /// use num_rational::BigRational;
+    ///
+    /// let ring = PolynomialRing::<BigRational>::new(["x", "y"], MonomialOrder::GRevLex)?;
+    /// let ideal = Ideal::new(ring.parse_many("x^2 - y; y^2 - x")?)?;
+    /// let f = ring.parse("x^4 - x")?;
+    /// let h = ideal.lift(&f)?.ok_or("not a member")?;
+    /// assert!(verify_lift(ideal.generators(), &h, &f));
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn lift(&self, f: &Polynomial<F>) -> Result<Option<Vec<Polynomial<F>>>, GroebnerError> {
         if self.generators.is_empty() {
             return Ok(f.is_zero().then(Vec::new));

@@ -2,47 +2,30 @@
 
 ## Unreleased
 
-- Speed up rational F4 reconstruction by a third or more: add each prime to the CRT
-  accumulators in parallel without allocating, reconstruct coefficients through a
-  running common denominator so most skip the half extended gcd, replay traces with
-  the deterministic elimination on their independent rows, and take a prime per
-  worker once a pool's worth of primes did not suffice.
-- Intern packed F4 monomials in an open addressing table, and renumber and sort
-  preprocessing columns in parallel. reimer8 runs about a tenth faster.
-- Store F4 basis elements as coefficients and packed term keys, so a preprocessing
-  product is one add of the term key and the packed multiplier. Monomials are kept
-  only for terms that do not pack or when a trace records the support.
-- Move F4 matrix columns out of the plan instead of copying them, and keep only the
-  leading terms during final interreduction. Peak memory falls by a tenth to over a
-  third, from 8.6 GB to 5.3 GB on henrion8.
-- Prune F4 critical pairs with packed lcm keys, testing each new pair against
-  lower degree lcms in parallel. The kept pairs match the sequential criterion.
-- Search reducers for new preprocessing monomials in parallel, testing divisibility
-  on packed keys.
-- Run the F4 main loop on a pool thread, so each parallel step starts by work
-  stealing rather than waking the pool from outside.
-- Echelonize F4 matrices over prime fields by random linear combinations of row
-  blocks, reducing about one row per new pivot. A block stops after enough
-  consecutive zero combinations to miss a pivot with probability below 2^-40.
-  Multi-modular runs keep the deterministic traced elimination.
-- Intern F4 matrix monomials as packed exponent keys, in parallel per preprocessing
-  level with sharded tables for new monomials.
-- Reduce leftover F4 entries during the elimination sweep, skipping the output pass
-  for rows that reduce to zero.
-- Scatter F4 reducer rows in fixed chunks of eight and store residues as `u16`
-  when the prime fits in 16 bits.
-- Share coefficients among F4 reducer rows that are multiples of one basis element,
-  cutting peak memory by about a fifth.
-- Interreduce the final F4 basis with one Macaulay matrix instead of polynomial
-  division, for both direct and per-prime modular runs.
-- Echelonize new F4 rows in parallel: workers claim free pivot columns
-  concurrently, and back substitution reduces every row independently.
-- Intern F4 matrix monomials by exponent slice with FxHash, allocating a product
-  only when it is a new column.
-- Skip zero cells and clear only the touched span in dense modular row reduction.
-- Store modular matrix rows as `u32` residues whenever the prime fits in 32 bits.
-- Look up F4 reducers in active elements sorted by length, and filter
-  Gebauer-Moller pair criteria by divisibility mask without allocating.
+- Move README usage examples into module and item documentation.
+- Speed up rational F4 reconstruction by a third or more.
+- Intern packed F4 monomials in an open addressing table.
+- Renumber and sort preprocessing columns in parallel.
+- Store F4 basis elements as coefficients and packed term keys.
+- Move F4 matrix columns out of the plan instead of copying.
+- Keep only leading terms during final interreduction, cutting peak memory.
+- Prune F4 critical pairs in parallel with packed lcm keys.
+- Search reducers for preprocessing monomials in parallel on packed keys.
+- Run the F4 main loop on a pool thread.
+- Echelonize F4 matrices by random linear combinations of row blocks.
+- Keep deterministic traced elimination for multi-modular runs.
+- Intern F4 matrix monomials as packed keys, sharded per level.
+- Reduce leftover F4 entries during the elimination sweep.
+- Scatter F4 reducer rows in fixed chunks of eight.
+- Store residues as `u16` when the prime fits in 16 bits.
+- Share coefficients among F4 reducer rows from one basis element.
+- Interreduce the final F4 basis with one Macaulay matrix.
+- Echelonize new F4 rows in parallel with concurrent pivot claims.
+- Intern F4 matrix monomials by exponent slice with FxHash.
+- Skip zero cells in dense modular row reduction.
+- Store modular matrix rows as `u32` residues when possible.
+- Look up F4 reducers in active elements sorted by length.
+- Filter Gebauer-Moller pair criteria by divisibility mask without allocating.
 - Breaking: `SparseRow::columns` is now `Vec<u32>`.
 - Breaking: `F4Field` methods take known pivots as `Reducers`.
 
