@@ -86,9 +86,9 @@ Reduced basis with `groebner_basis_f4` over GF(32003) in GRevLex, on Apple M5 si
 
 | System    | Basis size |   Time |
 | --------- | ---------: | -----: |
-| chandra12 |       2048 | 0.57 s |
-| chandra13 |       4096 | 2.46 s |
-| cyclic8   |        372 | 0.22 s |
+| chandra12 |       2048 | 0.50 s |
+| chandra13 |       4096 | 2.02 s |
+| cyclic8   |        372 | 0.19 s |
 | cyclic9   |       1344 | 8.67 s |
 | eco12     |        743 | 0.36 s |
 | eco13     |       1465 | 1.41 s |
@@ -98,8 +98,8 @@ Reduced basis with `groebner_basis_f4` over GF(32003) in GRevLex, on Apple M5 si
 | katsura11 |       1050 | 0.75 s |
 | katsura12 |       2091 | 4.08 s |
 | katsura13 |       4140 | 26.7 s |
-| noon9     |       3682 | 2.35 s |
-| noon10    |      10273 | 19.0 s |
+| noon9     |       3682 | 1.88 s |
+| noon10    |      10273 | 13.8 s |
 | reimer7   |        227 | 0.16 s |
 | reimer8   |        612 | 3.61 s |
 

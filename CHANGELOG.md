@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Prune F4 critical pairs with packed lcm keys, testing each new pair against
+  lower degree lcms in parallel. The kept pairs match the sequential criterion.
+- Search reducers for new preprocessing monomials in parallel, testing divisibility
+  on packed keys.
+- Run the F4 main loop on a pool thread, so each parallel step starts by work
+  stealing rather than waking the pool from outside.
 - Echelonize F4 matrices over prime fields by random linear combinations of row
   blocks, reducing about one row per new pivot. A block stops after enough
   consecutive zero combinations to miss a pivot with probability below 2^-40.

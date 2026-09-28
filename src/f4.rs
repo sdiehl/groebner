@@ -29,7 +29,6 @@ use polycore::sample::Rng;
 use rayon::prelude::*;
 use rustc_hash::{FxHashMap as HashMap, FxHashSet as HashSet};
 use std::borrow::Borrow;
-use std::collections::VecDeque;
 use std::hash::{Hash, Hasher};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Mutex, OnceLock, PoisonError};
@@ -225,7 +224,21 @@ pub fn groebner_basis_f4_direct<F: F4Field>(
     compute(polynomials, canonicalize, None)
 }
 
+// Runs on a pool thread, so parallel steps split work by stealing instead of each
+// waking the pool from outside and sleeping until it finishes.
 fn compute<F: F4Field>(
+    polynomials: Vec<Polynomial<F>>,
+    canonicalize: bool,
+    trace: Option<&mut F4Trace>,
+) -> Result<Vec<Polynomial<F>>, GroebnerError> {
+    #[cfg(feature = "parallel")]
+    if rayon::current_thread_index().is_none() {
+        return rayon::scope(|_| compute_on(polynomials, canonicalize, trace));
+    }
+    compute_on(polynomials, canonicalize, trace)
+}
+
+fn compute_on<F: F4Field>(
     polynomials: Vec<Polynomial<F>>,
     canonicalize: bool,
     mut trace: Option<&mut F4Trace>,
@@ -239,6 +252,7 @@ fn compute<F: F4Field>(
         by_size: Vec::new(),
         pairs: Vec::new(),
         masks: Vec::new(),
+        keys: Vec::new(),
     };
     for poly in input {
         state.update(poly);
@@ -368,6 +382,8 @@ struct State<F> {
     by_size: Vec<usize>,
     pairs: Vec<Pair>,
     masks: Vec<u64>,
+    // Packed leading monomials, when they fit.
+    keys: Vec<Option<u128>>,
 }
 
 struct Matrix<F> {
@@ -405,6 +421,69 @@ fn pack(exps: &[u32]) -> Option<u128> {
     exps.iter()
         .rev()
         .try_fold(0u128, |acc, &e| (e < 128).then(|| acc << 8 | u128::from(e)))
+}
+
+// Lanewise maximum of packed monomials: the lcm.
+fn lane_max(a: u128, b: u128) -> u128 {
+    let ge = ((a | LANES) - b) & LANES;
+    let mask = (ge >> 7) * 0xff;
+    (a & mask) | (b & !mask)
+}
+
+fn lane_divides(a: u128, b: u128) -> bool {
+    ((b | LANES) - a) & LANES == LANES
+}
+
+fn lane_sum(a: u128) -> u32 {
+    const BYTES: u128 = 0x00ff_00ff_00ff_00ff_00ff_00ff_00ff_00ff;
+    const ONES: u128 = 0x0001_0001_0001_0001_0001_0001_0001_0001;
+    let pairs = (a & BYTES) + ((a >> 8) & BYTES);
+    (pairs.wrapping_mul(ONES) >> 112) as u32
+}
+
+// Indices of candidates, as lcm, degree, coprime flag and mask, that no other candidate
+// eliminates. A candidate goes when an lcm of lower degree divides it, or an equal lcm
+// comes later or is coprime. Coprime candidates go too.
+fn survivors<T: PartialEq + Clone + Send + Sync>(
+    cands: &[(T, u32, bool, u64)],
+    divides: impl Fn(&T, &T) -> bool + Sync,
+) -> Vec<usize> {
+    // Counting sort by degree, stable so equal lcms stay in candidate order.
+    let top = cands.iter().map(|c| c.1 as usize).max().unwrap_or(0);
+    let mut starts = vec![0; top + 2];
+    for c in cands {
+        starts[c.1 as usize + 1] += 1;
+    }
+    for d in 0..=top {
+        starts[d + 1] += starts[d];
+    }
+    let mut next = starts.clone();
+    let mut order = vec![0; cands.len()];
+    for (p, c) in cands.iter().enumerate() {
+        order[next[c.1 as usize]] = p;
+        next[c.1 as usize] += 1;
+    }
+    let sorted: Vec<(T, u64, usize, bool)> = order
+        .into_iter()
+        .map(|p| (cands[p].0.clone(), cands[p].3, p, cands[p].2))
+        .collect();
+    let free = map_big(&sorted, |(lp, mp, p, coprime)| {
+        let d = cands[*p].1 as usize;
+        !coprime
+            && !sorted[..starts[d]]
+                .iter()
+                .any(|(lq, mq, _, _)| mq & !mp == 0 && divides(lq, lp))
+            && !sorted[starts[d]..starts[d + 1]]
+                .iter()
+                .any(|(lq, _, q, cq)| q != p && lq == lp && (q > p || *cq))
+    });
+    let mut kept: Vec<usize> = sorted
+        .iter()
+        .zip(free)
+        .filter_map(|(c, free)| free.then_some(c.2))
+        .collect();
+    kept.sort_unstable();
+    kept
 }
 
 #[derive(Default)]
@@ -598,22 +677,10 @@ impl<F: F4Field> State<F> {
         let t = self.basis.len();
         let mask_h = divisibility_mask(&lm_h);
         self.masks.push(mask_h);
+        self.keys.push(pack(lm_h.exps()));
         self.basis.push(h);
         self.active.push(true);
-
-        let mut candidates: VecDeque<Pair> = (0..t)
-            .filter(|&g| self.active[g])
-            .map(|g| self.pair(g, t))
-            .collect();
-        let mut kept: Vec<Pair> = Vec::new();
-        while let Some(p) = candidates.pop_front() {
-            let coprime = self.lm(p.i).is_coprime(&lm_h);
-            let dominated = |q: &Pair| q.mask & !p.mask == 0 && q.lcm.divides(&p.lcm);
-            if coprime || !(candidates.iter().any(dominated) || kept.iter().any(dominated)) {
-                kept.push(p);
-            }
-        }
-        kept.retain(|p| !self.lm(p.i).is_coprime(&lm_h));
+        let kept = self.new_pairs(t);
 
         let basis = &self.basis;
         let lm = |i: usize| {
@@ -647,6 +714,35 @@ impl<F: F4Field> State<F> {
         self.by_size.insert(at, t);
     }
 
+    // Pairs of `t` with the active basis that survive the chain criterion. A pair goes
+    // when another's lcm properly divides its own, or equals it and either comes later
+    // or has coprime leading monomials. Coprime pairs go too, after serving as divisors.
+    fn new_pairs(&self, t: usize) -> Vec<Pair> {
+        let lm_h = self.lm(t);
+        let others: Vec<usize> = (0..t).filter(|&g| self.active[g]).collect();
+        // The mask of an lcm is the union of the masks of its arguments.
+        let mask = |g: usize| self.masks[g] | self.masks[t];
+        let kept = match self.keys[t] {
+            Some(h) if others.iter().all(|&g| self.keys[g].is_some()) => {
+                let cands = map_big(&others, |&g| {
+                    let k = self.keys[g].unwrap_or_default();
+                    let lcm = lane_max(k, h);
+                    (lcm, lane_sum(lcm), lcm == k + h, mask(g))
+                });
+                survivors(&cands, |&a, &b| lane_divides(a, b))
+            }
+            _ => {
+                let cands = map_big(&others, |&g| {
+                    let lcm = self.lm(g).lcm(lm_h);
+                    let degree = lcm.degree();
+                    (lcm, degree, self.lm(g).is_coprime(lm_h), mask(g))
+                });
+                survivors(&cands, Monomial::divides)
+            }
+        };
+        kept.into_iter().map(|k| self.pair(others[k], t)).collect()
+    }
+
     fn select(&mut self) -> Vec<Pair> {
         let min_degree = self
             .pairs
@@ -663,10 +759,14 @@ impl<F: F4Field> State<F> {
 
     fn reducer(&self, m: &Monomial) -> Option<usize> {
         let mask = divisibility_mask(m);
-        self.by_size
-            .iter()
-            .copied()
-            .find(|&i| self.masks[i] & !mask == 0 && self.lm(i).divides(m))
+        let key = pack(m.exps());
+        self.by_size.iter().copied().find(|&i| {
+            self.masks[i] & !mask == 0
+                && match (self.keys[i], key) {
+                    (Some(a), Some(b)) => lane_divides(a, b),
+                    _ => self.lm(i).divides(m),
+                }
+        })
     }
 
     fn symbolic_preprocessing(
@@ -760,15 +860,17 @@ impl<F: F4Field> State<F> {
                     rows.push(row)
                 }
             }
-            level = fresh
-                .into_iter()
-                .filter(|&id| pivot_leads.insert(id))
-                .filter_map(|id| {
+            fresh.retain(|&id| pivot_leads.insert(id));
+            let found = map_rows(
+                &fresh,
+                || (),
+                |&id, ()| {
                     let m = &table.monomials[id as usize];
                     let i = self.reducer(m)?;
                     Some((i, m.quo(self.lm(i))?, true))
-                })
-                .collect();
+                },
+            );
+            level = found.into_iter().flatten().collect();
         }
         let mut ids: Vec<usize> = (0..table.monomials.len()).collect();
         ids.sort_by(|&a, &b| order.compare(&table.monomials[b], &table.monomials[a]));
@@ -1056,6 +1158,14 @@ fn map_rows<T: Sync, R: Send, S>(
         return rows.par_chunks(32).flat_map_iter(block).collect();
     }
     block(rows)
+}
+
+// `map_rows` for cheap per-row work, which only pays to split when there is a lot.
+fn map_big<T: Sync, R: Send>(rows: &[T], f: impl Fn(&T) -> R + Sync) -> Vec<R> {
+    if rows.len() < 1024 {
+        return rows.iter().map(f).collect();
+    }
+    map_rows(rows, || (), |r, ()| f(r))
 }
 
 // Reduce `rows` by the monic `pivots` and by each other, then back substitute. Workers
