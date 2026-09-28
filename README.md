@@ -84,14 +84,26 @@ Several parameters work over `Frac`, the field Q(a, b, ...), behind the `paramet
 
 Reduced basis with `groebner_basis_f4` over GF(32003) in GRevLex, on Apple M5 silicon (10 cores).
 
-| System    | Basis size | Time   |
+| System    | Basis size |   Time |
 | --------- | ---------: | -----: |
+| chandra12 |       2048 | 0.57 s |
+| chandra13 |       4096 | 2.46 s |
 | cyclic8   |        372 | 0.22 s |
-| katsura10 |        537 | 0.18 s |
-| eco12     |        743 | 0.37 s |
-| noon9     |       3682 | 2.55 s |
-| cyclic9   |       1344 | 11.0 s |
-| katsura13 |       4140 | 44.7 s |
+| cyclic9   |       1344 | 8.67 s |
+| eco12     |        743 | 0.36 s |
+| eco13     |       1465 | 1.41 s |
+| eco14     |       2852 | 8.45 s |
+| henrion7  |        415 | 0.40 s |
+| henrion8  |       2344 | 58.2 s |
+| katsura11 |       1050 | 0.75 s |
+| katsura12 |       2091 | 4.08 s |
+| katsura13 |       4140 | 26.7 s |
+| noon9     |       3682 | 2.35 s |
+| noon10    |      10273 | 19.0 s |
+| reimer7   |        227 | 0.16 s |
+| reimer8   |        612 | 3.61 s |
+
+Inputs are in [`benches/data`](benches/data).
 
 ## Test Suite
 
