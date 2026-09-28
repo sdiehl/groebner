@@ -2,7 +2,8 @@
 
 ## Unreleased
 
-- Move README usage examples into module and item documentation.
+- Replay rational F4 traces at four primes per pass.
+- Reduce large-prime sweeps with branchless conditional subtraction.
 - Speed up rational F4 reconstruction by a third or more.
 - Intern packed F4 monomials in an open addressing table.
 - Renumber and sort preprocessing columns in parallel.

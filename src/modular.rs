@@ -1,5 +1,5 @@
 //! Multi-modular reconstruction of a reduced rational F4 basis.
-use crate::f4::{F4Trace, learn};
+use crate::f4::{F4Trace, PRIMES, learn};
 use crate::{Fp, GroebnerError, Monomial, Polynomial};
 use num_integer::Integer;
 use num_rational::BigRational;
@@ -334,23 +334,16 @@ fn reconstruct_inner(
     let mut trace = TraceState::default();
     loop {
         let count = groups.values().map(|g| g.primary.count).max().unwrap_or(0);
-        // Grow by about 12.5%, rather than doubling the work near completion. Once a
-        // pool's worth of primes did not suffice, take at least one prime per worker:
-        // a few replays alone leave the pool idle.
-        #[cfg(feature = "parallel")]
-        let width = rayon::current_num_threads();
-        #[cfg(not(feature = "parallel"))]
-        let width = 2;
+        // After the learned image, replay whole lane chunks and grow by about 12.5%,
+        // rather than doubling the work near completion.
         let batch = if count == 0 {
             1
         } else {
-            let step = count.div_ceil(8);
-            if count >= width {
-                step.max(width)
-            } else {
-                step
-            }
-            .clamp(2, 32)
+            count
+                .div_ceil(8)
+                .max(2 * PRIMES)
+                .next_multiple_of(PRIMES)
+                .min(32)
         };
         let ps: Vec<_> = primes.by_ref().take(batch).collect();
         if ps.is_empty() {
@@ -369,10 +362,27 @@ fn reconstruct_inner(
                 })
                 .transpose()
         };
+        // A full chunk of primes replays in one pass; the rest go one at a time.
+        let chunk = |ps: &[u64]| -> Vec<Result<Image, GroebnerError>> {
+            let lanes = <[u64; PRIMES]>::try_from(ps)
+                .ok()
+                .zip(trace.current.as_ref())
+                .and_then(|(primes, t)| {
+                    let inputs = ps
+                        .iter()
+                        .map(|&p| map_input(input, p))
+                        .collect::<Option<_>>()?;
+                    t.replay_lanes(inputs, primes)
+                });
+            match lanes {
+                Some(bases) => bases.into_iter().map(|b| Ok(Some((b, None)))).collect(),
+                None => ps.iter().map(image).collect(),
+            }
+        };
         #[cfg(feature = "parallel")]
-        let images: Vec<_> = ps.par_iter().map(image).collect();
+        let images: Vec<_> = ps.par_chunks(PRIMES).flat_map_iter(chunk).collect();
         #[cfg(not(feature = "parallel"))]
-        let images: Vec<_> = ps.iter().map(image).collect();
+        let images: Vec<_> = ps.chunks(PRIMES).flat_map(chunk).collect();
 
         for (p, image) in ps.into_iter().zip(images) {
             let Some((mut basis, learned)) = image? else {

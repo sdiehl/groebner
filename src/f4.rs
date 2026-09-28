@@ -347,7 +347,9 @@ impl F4Trace {
             }
             let matrix = round
                 .plan
-                .execute_rows(&basis, round.live.iter().copied())?;
+                .execute_rows(&basis, round.live.iter().copied(), |i| {
+                    basis[i].terms.iter().map(|(_, c)| *c).collect()
+                })?;
             let rows =
                 Zp::echelonize_traced(&matrix.pivots, &matrix.rows, round.plan.columns.len()).0;
             let mut polys: Vec<_> = rows
@@ -373,6 +375,259 @@ impl F4Trace {
         )
         .ok()
     }
+
+    /// [`F4Trace::replay`] at [`PRIMES`] primes in one pass: the images share every
+    /// matrix structure, so one sweep eliminates all their residues side by side. `None`
+    /// when any replay would fail or a coefficient vanishes at only some of the primes,
+    /// which the caller resolves by replaying the primes one at a time.
+    pub(crate) fn replay_lanes(
+        &self,
+        inputs: Vec<Vec<Polynomial<Zp>>>,
+        primes: [u64; PRIMES],
+    ) -> Option<Vec<Vec<Polynomial<Zp>>>> {
+        let inputs = inputs
+            .into_iter()
+            .map(|p| prepare_input(p).ok())
+            .collect::<Option<Vec<_>>>()?;
+        let mut basis = inputs[0].clone();
+        let same_support = |a: &Polynomial<Zp>, b: &Polynomial<Zp>| {
+            a.terms.len() == b.terms.len() && a.terms.iter().zip(&b.terms).all(|(x, y)| x.0 == y.0)
+        };
+        if inputs.len() != PRIMES
+            || basis
+                .iter()
+                .filter_map(|p| p.lm())
+                .ne(self.input_leads.iter())
+            || inputs[1..].iter().any(|other| {
+                other.len() != basis.len()
+                    || !other.iter().zip(&basis).all(|(a, b)| same_support(a, b))
+            })
+        {
+            return None;
+        }
+        let mut coefficients: Vec<Vec<Lanes>> = (0..basis.len())
+            .map(|i| {
+                (0..basis[i].terms.len())
+                    .map(|k| {
+                        std::array::from_fn(|l| {
+                            inputs[l][i].terms[k].1.residue_mod(primes[l]) as u32
+                        })
+                    })
+                    .collect()
+            })
+            .collect();
+        let (nvars, order) = (basis[0].nvars, basis[0].order.clone());
+        for round in &self.rounds {
+            if round.live.is_empty() {
+                continue;
+            }
+            let matrix = round
+                .plan
+                .execute_rows(&basis, round.live.iter().copied(), |i| {
+                    coefficients[i].clone()
+                })?;
+            let ncols = round.plan.columns.len();
+            let kernel = LaneKernel::new(primes, ncols);
+            let known = Table::new(matrix.pivots.view(&matrix.pivots.coefficients), ncols);
+            let (rows, _) = echelon(&kernel, &known, &matrix.rows, ncols);
+            if kernel.failed.into_inner() {
+                return None;
+            }
+            let mut new: Vec<_> = rows
+                .into_iter()
+                .map(|r| {
+                    let first = SparseRow {
+                        columns: r.columns,
+                        coefficients: r
+                            .coefficients
+                            .iter()
+                            .map(|v| Zp::from_residue(v[0].into(), primes[0]))
+                            .collect(),
+                    };
+                    (
+                        decode(&first, &round.plan.columns, nvars, &order),
+                        r.coefficients,
+                    )
+                })
+                .collect();
+            new.sort_by(|a, b| crate::groebner::compare_leading(&a.0, &b.0, &order));
+            if new
+                .iter()
+                .filter_map(|(p, _)| p.lm())
+                .ne(round.leads.iter())
+            {
+                return None;
+            }
+            for (p, c) in new {
+                basis.push(p);
+                coefficients.push(c);
+            }
+        }
+        if basis.len() != self.active.len() {
+            return None;
+        }
+        (0..PRIMES)
+            .map(|l| {
+                let polys = basis
+                    .iter()
+                    .zip(&coefficients)
+                    .zip(&self.active)
+                    .filter(|&(_, &active)| active)
+                    .map(|((p, cs), _)| Polynomial {
+                        terms: p
+                            .terms
+                            .iter()
+                            .zip(cs)
+                            .filter(|(_, v)| v[l] != 0)
+                            .map(|((m, _), v)| {
+                                term(Zp::from_residue(v[l].into(), primes[l]), m.clone())
+                            })
+                            .collect(),
+                        nvars,
+                        order: order.clone(),
+                    })
+                    .collect();
+                finish(polys, true).ok()
+            })
+            .collect()
+    }
+}
+
+/// Number of primes [`F4Trace::replay_lanes`] eliminates together.
+pub(crate) const PRIMES: usize = 4;
+type Lanes = [u32; PRIMES];
+
+// Dense reduction of lane residues. A leading coefficient that vanishes at only some
+// primes splits the images' structure, which is recorded in `failed`.
+struct LaneKernel {
+    p: [u64; PRIMES],
+    ncols: usize,
+    deferred: bool,
+    failed: std::sync::atomic::AtomicBool,
+}
+impl LaneKernel {
+    fn new(p: [u64; PRIMES], ncols: usize) -> Self {
+        let max = p.into_iter().max().unwrap_or(0);
+        Self {
+            p,
+            ncols,
+            deferred: max < (1 << 31) && fits(ncols, max),
+            failed: false.into(),
+        }
+    }
+}
+impl Kernel<Lanes> for LaneKernel {
+    type Scratch = Vec<[u64; PRIMES]>;
+    fn scratch(&self) -> Self::Scratch {
+        vec![[0; PRIMES]; self.ncols]
+    }
+    fn reduce(
+        &self,
+        row: &SparseRow<Lanes>,
+        pivots: &impl Pivots<Lanes>,
+        buf: &mut Self::Scratch,
+    ) -> SparseRow<Lanes> {
+        for (&c, v) in row.columns.iter().zip(&row.coefficients) {
+            buf[c as usize] = v.map(u64::from);
+        }
+        sweep_lanes(buf, span(&row.columns), pivots, self).unwrap_or_else(|| {
+            self.failed.store(true, Ordering::Relaxed);
+            SparseRow {
+                columns: Vec::new(),
+                coefficients: Vec::new(),
+            }
+        })
+    }
+    fn normalize(&self, row: &mut SparseRow<Lanes>) {
+        let lead = row.coefficients[0];
+        if lead == [1; PRIMES] {
+            return;
+        }
+        let inv: [u64; PRIMES] = std::array::from_fn(|l| inv_mod(lead[l].into(), self.p[l]));
+        for v in &mut row.coefficients {
+            *v = std::array::from_fn(|l| mul_mod(v[l].into(), inv[l], self.p[l]) as u32);
+        }
+    }
+}
+
+// `sweep` over lanes of residues, or `None` if the leading cell vanishes at only some
+// primes. Other cells keep the union of the supports, with zeros where a coefficient
+// vanishes. `buf` is cleared either way.
+fn sweep_lanes(
+    buf: &mut [[u64; PRIMES]],
+    (lo, mut hi): (usize, usize),
+    pivots: &impl Pivots<Lanes>,
+    kernel: &LaneKernel,
+) -> Option<SparseRow<Lanes>> {
+    let p = kernel.p;
+    let square = p.map(|p| if p < (1 << 31) { p * p } else { 0 });
+    let (mut first, mut left) = (usize::MAX, 0);
+    let mut j = lo;
+    while j <= hi && j < buf.len() {
+        if buf[j] == [0; PRIMES] {
+            j += 1;
+            continue;
+        }
+        let Some(piv) = pivots.get(j as u32) else {
+            let cell = &mut buf[j];
+            for l in 0..PRIMES {
+                cell[l] %= p[l];
+            }
+            if *cell != [0; PRIMES] {
+                first = first.min(j);
+                left += 1;
+            }
+            j += 1;
+            continue;
+        };
+        let v = std::mem::take(&mut buf[j]);
+        // Multipliers as `u32`, so each product is one widening multiply per lane.
+        let c: [u32; PRIMES] = std::array::from_fn(|l| match v[l] % p[l] {
+            0 => 0,
+            r => (p[l] - r) as u32,
+        });
+        if c != [0; PRIMES] {
+            hi = hi.max(span(piv.columns).1);
+            let tail = piv.columns[1..].iter().zip(&piv.coefficients[1..]);
+            if kernel.deferred {
+                for (&pc, pv) in tail {
+                    let cell = &mut buf[pc as usize];
+                    for l in 0..PRIMES {
+                        cell[l] += u64::from(c[l]) * u64::from(pv[l]);
+                    }
+                }
+            } else {
+                for (&pc, pv) in tail {
+                    let cell = &mut buf[pc as usize];
+                    for l in 0..PRIMES {
+                        let acc = cell[l] + u64::from(c[l]) * u64::from(pv[l]);
+                        cell[l] = if acc >= square[l] {
+                            acc - square[l]
+                        } else {
+                            acc
+                        };
+                    }
+                }
+            }
+        }
+        j += 1;
+    }
+    let mut out = SparseRow {
+        columns: Vec::with_capacity(left),
+        coefficients: Vec::with_capacity(left),
+    };
+    for (c, cell) in buf.iter_mut().enumerate().skip(first) {
+        if out.columns.len() == left {
+            break;
+        }
+        let v = std::mem::take(cell);
+        if v != [0; PRIMES] {
+            out.columns.push(c as u32);
+            out.coefficients.push(v.map(|x| x as u32));
+        }
+    }
+    let split = out.coefficients.first().is_some_and(|v| v.contains(&0));
+    (!split).then_some(out)
 }
 
 #[derive(Debug, Clone)]
@@ -764,12 +1019,14 @@ struct MatrixPlan {
     rows: Vec<PlannedRow>,
 }
 impl MatrixPlan {
-    // Some rows of a traced plan, over a replayed basis.
-    fn execute_rows<F: Field>(
+    // Some rows of a traced plan, over a replayed basis whose coefficients, in term
+    // order, are `coefficients(i)`.
+    fn execute_rows<F: Field, C>(
         &self,
         basis: &[Polynomial<F>],
         rows: impl Iterator<Item = usize>,
-    ) -> Option<Matrix<F>> {
+        coefficients: impl Fn(usize) -> Vec<C>,
+    ) -> Option<Matrix<C>> {
         // Columns of the basis polynomial, which may have lost terms since planning.
         let columns = |row: &PlannedRow| {
             let p = basis.get(row.basis)?;
@@ -795,20 +1052,12 @@ impl MatrixPlan {
                 let row = &self.rows[i];
                 Some(SparseRow {
                     columns: columns(row)?,
-                    coefficients: basis[row.basis]
-                        .terms
-                        .iter()
-                        .map(|(_, c)| c.clone())
-                        .collect(),
+                    coefficients: coefficients(row.basis),
                 })
             })
             .collect::<Option<_>>()?;
         Some(Matrix {
-            pivots: reducers(
-                basis.len(),
-                |i| basis[i].terms.iter().map(|(_, c)| c.clone()).collect(),
-                pivots,
-            ),
+            pivots: reducers(basis.len(), coefficients, pivots),
             rows,
         })
     }
@@ -1774,8 +2023,8 @@ fn sweep<C: Residue>(
     pivots: &impl Pivots<C>,
     p: u64,
 ) -> SparseRow<C> {
-    const LIMIT: u64 = 1 << 63;
     let small = p < (1 << 31);
+    let square = if small { p * p } else { 0 };
     let ncols = buf.len();
     // At most ncols triangular pivot eliminations can contribute to any cell.
     let deferred = small && fits(ncols + terms, p);
@@ -1816,9 +2065,21 @@ fn sweep<C: Residue>(
                     buf[pc as usize] += c * pv.into();
                 }
             } else if small {
-                for (&pc, &pv) in tail {
-                    let acc = buf[pc as usize] + c * pv.into();
-                    buf[pc as usize] = if acc >= LIMIT { acc % p } else { acc };
+                // Cells stay below p^2 < 2^62, so one product never overflows, and
+                // the conditional subtraction compiles to a select rather than a branch.
+                let (kc, kr) = cols.as_chunks::<8>();
+                let (vc, vr) = coefs.as_chunks::<8>();
+                let update = |cell: &mut u64, v: C| {
+                    let acc = *cell + c * v.into();
+                    *cell = if acc >= square { acc - square } else { acc };
+                };
+                for (ks, vs) in kc.iter().zip(vc) {
+                    for u in 0..8 {
+                        update(&mut buf[ks[u] as usize], vs[u]);
+                    }
+                }
+                for (&pc, &pv) in kr.iter().zip(vr) {
+                    update(&mut buf[pc as usize], pv);
                 }
             } else {
                 for (&pc, &pv) in tail {
@@ -1890,6 +2151,20 @@ mod trace_tests {
         let system = "x + y; x - y";
         let (_, trace) = learn(input(3, system)).expect("learn");
         assert!(trace.replay(input(2, system)).is_none());
+        let primes = [3, 5, 7, 2];
+        let inputs = primes.iter().map(|&p| input(p, system)).collect();
+        assert!(trace.replay_lanes(inputs, primes).is_none());
+    }
+    #[test]
+    fn lane_replay_matches_scalar_replay() {
+        let system = "x^3 - 2*y + 5; x*y^2 - 3*x + 1; y^3 - x^2 + 7*y";
+        let (_, trace) = learn(input(32003, system)).expect("learn");
+        let primes = [8_388_593, 8_388_587, 8_388_581, 2_147_483_647];
+        let inputs = primes.iter().map(|&p| input(p, system)).collect();
+        let lanes = trace.replay_lanes(inputs, primes).expect("lanes");
+        for (basis, p) in lanes.into_iter().zip(primes) {
+            assert_eq!(Some(basis), trace.replay(input(p, system)));
+        }
     }
     #[test]
     fn modular_row_blocks_match_generic_elimination_at_word_boundaries() {
