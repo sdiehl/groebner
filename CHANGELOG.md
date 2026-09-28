@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Speed up rational F4 reconstruction by a third or more: add each prime to the CRT
+  accumulators in parallel without allocating, reconstruct coefficients through a
+  running common denominator so most skip the half extended gcd, replay traces with
+  the deterministic elimination on their independent rows, and take a prime per
+  worker once a pool's worth of primes did not suffice.
 - Intern packed F4 monomials in an open addressing table, and renumber and sort
   preprocessing columns in parallel. reimer8 runs about a tenth faster.
 - Store F4 basis elements as coefficients and packed term keys, so a preprocessing

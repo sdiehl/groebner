@@ -348,7 +348,8 @@ impl F4Trace {
             let matrix = round
                 .plan
                 .execute_rows(&basis, round.live.iter().copied())?;
-            let rows = Zp::echelonize(&matrix.pivots, &matrix.rows, round.plan.columns.len());
+            let rows =
+                Zp::echelonize_traced(&matrix.pivots, &matrix.rows, round.plan.columns.len()).0;
             let mut polys: Vec<_> = rows
                 .iter()
                 .map(|r| decode(r, &round.plan.columns, nvars, &order))

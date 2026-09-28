@@ -1,8 +1,10 @@
 //! Multi-modular reconstruction of a reduced rational F4 basis.
 use crate::f4::{F4Trace, learn};
 use crate::{Fp, GroebnerError, Monomial, Polynomial};
+use num_integer::Integer;
 use num_rational::BigRational;
-use polycore::{Primes, crt};
+use num_traits::Signed;
+use polycore::{Primes, crt, modp};
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 use std::collections::HashMap;
@@ -102,13 +104,38 @@ impl Default for Accumulator {
         }
     }
 }
+// `x mod p` for `x >= 0`, by Horner over the limbs without allocating.
+fn residue(x: &num_bigint::BigInt, p: u64) -> u64 {
+    let p = u128::from(p);
+    x.magnitude()
+        .iter_u64_digits()
+        .rev()
+        .fold(0, |r, d| ((u128::from(r) << 64 | u128::from(d)) % p) as u64)
+}
+
 impl Accumulator {
     fn add(&mut self, p: u64, values: &[u64]) {
         if self.count == 0 {
             self.residues = values.iter().copied().map(Into::into).collect();
             self.modulus = p.into();
         } else {
-            crt::garner(&mut self.residues, &mut self.modulus, values, p);
+            let m = &self.modulus;
+            let minv = modp::inv(residue(m, p), p);
+            let step = |(x, &v): (&mut num_bigint::BigInt, &u64)| {
+                let t = modp::mul(modp::sub(v, residue(x, p), p), minv, p);
+                if t != 0 {
+                    *x += m * t;
+                }
+            };
+            #[cfg(feature = "parallel")]
+            if self.residues.len() >= 1024 {
+                self.residues.par_iter_mut().zip(values).for_each(step);
+            } else {
+                self.residues.iter_mut().zip(values).for_each(step);
+            }
+            #[cfg(not(feature = "parallel"))]
+            self.residues.iter_mut().zip(values).for_each(step);
+            self.modulus *= p;
         }
         self.count += 1;
     }
@@ -136,15 +163,34 @@ impl Accumulator {
             let index = i * (self.residues.len() - 1) / probes.saturating_sub(1).max(1);
             context.reconstruct(&self.residues[index])?;
         }
+        let bound = (&self.modulus / 2u32).sqrt();
+        let run = |xs: &[num_bigint::BigInt]| -> Option<Vec<BigRational>> {
+            // Coefficients of one polynomial mostly share denominators. Once `d` holds
+            // theirs, `x * d` is a small integer and needs no half extended gcd. Both
+            // parts are within the Wang bound, so this is the fraction Wang would find.
+            let mut d = num_bigint::BigInt::from(1u32);
+            xs.iter()
+                .map(|x| {
+                    let y = crt::symmetric(&(x * &d), &self.modulus);
+                    if y.abs() <= bound {
+                        return Some(BigRational::new(y, d.clone()));
+                    }
+                    let c = context.reconstruct(x)?;
+                    let lcm = d.lcm(c.denom());
+                    d = if lcm <= bound { lcm } else { c.denom().clone() };
+                    Some(c)
+                })
+                .collect()
+        };
         #[cfg(feature = "parallel")]
-        if self.residues.len() >= 256 {
-            return self
-                .residues
-                .par_iter()
-                .map(|x| context.reconstruct(x))
-                .collect();
-        }
-        context.reconstruct_many(&self.residues)
+        return self
+            .residues
+            .par_chunks(256)
+            .map(run)
+            .collect::<Option<Vec<_>>>()
+            .map(|v| v.concat());
+        #[cfg(not(feature = "parallel"))]
+        run(&self.residues)
     }
 }
 
@@ -288,11 +334,23 @@ fn reconstruct_inner(
     let mut trace = TraceState::default();
     loop {
         let count = groups.values().map(|g| g.primary.count).max().unwrap_or(0);
-        // Grow by about 12.5%, rather than doubling the work near completion.
+        // Grow by about 12.5%, rather than doubling the work near completion. Once a
+        // pool's worth of primes did not suffice, take at least one prime per worker:
+        // a few replays alone leave the pool idle.
+        #[cfg(feature = "parallel")]
+        let width = rayon::current_num_threads();
+        #[cfg(not(feature = "parallel"))]
+        let width = 2;
         let batch = if count == 0 {
             1
         } else {
-            count.div_ceil(8).clamp(2, 32)
+            let step = count.div_ceil(8);
+            if count >= width {
+                step.max(width)
+            } else {
+                step
+            }
+            .clamp(2, 32)
         };
         let ps: Vec<_> = primes.by_ref().take(batch).collect();
         if ps.is_empty() {
