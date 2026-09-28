@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Reduce leftover F4 entries during the elimination sweep, skipping the output pass
+  for rows that reduce to zero.
+- Scatter F4 reducer rows in fixed chunks of eight and store residues as `u16`
+  when the prime fits in 16 bits.
 - Share coefficients among F4 reducer rows that are multiples of one basis element,
   cutting peak memory by about a fifth.
 - Interreduce the final F4 basis with one Macaulay matrix instead of polynomial

@@ -894,6 +894,11 @@ impl<F: Field + Send + Sync> Kernel<F> for Generic {
 trait Residue: Copy + Send + Sync + Into<u64> {
     fn new(v: u64) -> Self;
 }
+impl Residue for u16 {
+    fn new(v: u64) -> Self {
+        v as u16
+    }
+}
 impl Residue for u32 {
     fn new(v: u64) -> Self {
         v as u32
@@ -1080,6 +1085,7 @@ fn echelonize_modular_traced<F: ModularField + Send + Sync>(
             echelonize_generic(pivots, rows, ncols),
             (0..rows.len()).collect(),
         ),
+        Some(p) if p <= u64::from(u16::MAX) => echelon_residues::<F, u16>(p, pivots, rows, ncols),
         Some(p) if p <= u64::from(u32::MAX) => echelon_residues::<F, u32>(p, pivots, rows, ncols),
         Some(p) => echelon_residues::<F, u64>(p, pivots, rows, ncols),
     }
@@ -1104,6 +1110,7 @@ fn reduce_rows_modular<F: ModularField + Send + Sync>(
 ) -> Vec<SparseRow<F>> {
     match modulus(pivots, rows) {
         None => rows.to_vec(),
+        Some(p) if p <= u64::from(u16::MAX) => reduce_residues::<F, u16>(p, pivots, rows, ncols),
         Some(p) if p <= u64::from(u32::MAX) => reduce_residues::<F, u32>(p, pivots, rows, ncols),
         Some(p) => reduce_residues::<F, u64>(p, pivots, rows, ncols),
     }
@@ -1196,7 +1203,7 @@ fn reduce_dense<C: Residue>(
     const LIMIT: u64 = 1 << 63;
     let small = p < (1 << 31);
     let ncols = buf.len();
-    // `buf` is all zero on entry and is cleared again while compressing.
+    // `buf` is all zero on entry and is cleared again before returning.
     // At most ncols triangular pivot eliminations can contribute to any cell.
     let deferred = small
         && (ncols as u128) * u128::from(p - 1).pow(2) + u128::from(p - 1) <= u128::from(u64::MAX);
@@ -1204,6 +1211,9 @@ fn reduce_dense<C: Residue>(
         buf[c as usize] = v.into();
     }
     let (lo, mut hi) = span(&row.columns);
+    // Cells behind the sweep are final, so leftovers are reduced in place and counted,
+    // and a row that reduces to zero needs no second pass.
+    let (mut first, mut left) = (usize::MAX, 0);
     let mut j = lo;
     while j <= hi && j < ncols {
         if buf[j] == 0 {
@@ -1211,6 +1221,11 @@ fn reduce_dense<C: Residue>(
             continue;
         }
         let Some(piv) = pivots.get(j as u32) else {
+            buf[j] %= p;
+            if buf[j] != 0 {
+                first = first.min(j);
+                left += 1;
+            }
             j += 1;
             continue;
         };
@@ -1218,9 +1233,18 @@ fn reduce_dense<C: Residue>(
         if v != 0 {
             let c = p - v;
             hi = hi.max(span(piv.columns).1);
-            let tail = piv.columns[1..].iter().zip(&piv.coefficients[1..]);
+            let (cols, coefs) = (&piv.columns[1..], &piv.coefficients[1..]);
+            let tail = cols.iter().zip(coefs);
             if deferred {
-                for (&pc, &pv) in tail {
+                // Fixed-width chunks let the independent scatter updates overlap.
+                let (kc, kr) = cols.as_chunks::<8>();
+                let (vc, vr) = coefs.as_chunks::<8>();
+                for (ks, vs) in kc.iter().zip(vc) {
+                    for u in 0..8 {
+                        buf[ks[u] as usize] += c * vs[u].into();
+                    }
+                }
+                for (&pc, &pv) in kr.iter().zip(vr) {
                     buf[pc as usize] += c * pv.into();
                 }
             } else if small {
@@ -1237,16 +1261,14 @@ fn reduce_dense<C: Residue>(
         j += 1;
     }
     let mut out = SparseRow {
-        columns: Vec::new(),
-        coefficients: Vec::new(),
+        columns: Vec::with_capacity(left),
+        coefficients: Vec::with_capacity(left),
     };
-    for (c, cell) in buf
-        .iter_mut()
-        .enumerate()
-        .take(hi.saturating_add(1))
-        .skip(lo)
-    {
-        let v = std::mem::take(cell) % p;
+    for (c, cell) in buf.iter_mut().enumerate().skip(first) {
+        if out.columns.len() == left {
+            break;
+        }
+        let v = std::mem::take(cell);
         if v != 0 {
             out.columns.push(c as u32);
             out.coefficients.push(C::new(v));
