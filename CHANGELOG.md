@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Share coefficients among F4 reducer rows that are multiples of one basis element,
+  cutting peak memory by about a fifth.
 - Interreduce the final F4 basis with one Macaulay matrix instead of polynomial
   division, for both direct and per-prime modular runs.
 - Echelonize new F4 rows in parallel: workers claim free pivot columns
@@ -13,6 +15,7 @@
 - Look up F4 reducers in active elements sorted by length, and filter
   Gebauer-Moller pair criteria by divisibility mask without allocating.
 - Breaking: `SparseRow::columns` is now `Vec<u32>`.
+- Breaking: `F4Field` methods take known pivots as `Reducers`.
 
 ## 0.4.1 (2026-09-27)
 

@@ -66,7 +66,7 @@ pub mod rational_function;
 pub mod ring;
 pub mod sugar;
 
-pub use f4::{F4Field, SparseRow, groebner_basis_f4};
+pub use f4::{F4Field, Reducers, SparseRow, groebner_basis_f4};
 pub use fglm::{fglm, is_zero_dimensional, standard_monomials};
 pub use finite_field::{PrimeField, PrimeFieldParseError, Zp};
 pub use grebauer_moller::filter_gm_pairs;

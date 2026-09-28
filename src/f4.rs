@@ -39,6 +39,57 @@ pub struct SparseRow<F> {
     pub coefficients: Vec<F>,
 }
 
+/// Known pivot rows. Each is a monomial multiple of one polynomial, so all multiples share
+/// that polynomial's coefficients and differ only in their columns.
+#[derive(Debug, Clone)]
+pub struct Reducers<F> {
+    /// Coefficients of each polynomial, leading coefficient first.
+    pub coefficients: Vec<Vec<F>>,
+    /// Each row's index into `coefficients`, and its columns.
+    pub rows: Vec<(usize, Vec<u32>)>,
+}
+
+impl<F> From<Vec<SparseRow<F>>> for Reducers<F> {
+    fn from(rows: Vec<SparseRow<F>>) -> Self {
+        let (rows, coefficients) = rows
+            .into_iter()
+            .enumerate()
+            .map(|(k, r)| ((k, r.columns), r.coefficients))
+            .unzip();
+        Self { coefficients, rows }
+    }
+}
+
+impl<F> Reducers<F> {
+    // Rows over `coefficients`, either `self.coefficients` or a converted copy of them.
+    fn view<'a, C>(&'a self, coefficients: &'a [Vec<C>]) -> impl Iterator<Item = Row<'a, C>> {
+        self.rows.iter().map(|(k, columns)| Row {
+            columns,
+            coefficients: &coefficients[*k],
+        })
+    }
+}
+
+// Known pivots as multiples of `basis` elements with the given columns.
+fn reducers<F: Clone>(
+    basis: &[Polynomial<F>],
+    rows: impl IntoIterator<Item = (usize, Vec<u32>)>,
+) -> Reducers<F> {
+    let mut shared = vec![usize::MAX; basis.len()];
+    let mut coefficients = Vec::new();
+    let rows = rows
+        .into_iter()
+        .map(|(i, columns)| {
+            if shared[i] == usize::MAX {
+                shared[i] = coefficients.len();
+                coefficients.push(basis[i].terms.iter().map(|(_, c)| c.clone()).collect());
+            }
+            (shared[i], columns)
+        })
+        .collect();
+    Reducers { coefficients, rows }
+}
+
 /// Coefficient fields usable by [`groebner_basis_f4`]. The default method is a generic dense
 /// eliminator; prime fields override it with a delayed-reduction fast path.
 pub trait F4Field: Field + Send + Sync {
@@ -52,7 +103,7 @@ pub trait F4Field: Field + Send + Sync {
 
     /// Echelon form and indices of independent input rows, used when learning a trace.
     fn echelonize_traced(
-        pivots: &[SparseRow<Self>],
+        pivots: &Reducers<Self>,
         rows: &[SparseRow<Self>],
         ncols: usize,
     ) -> (Vec<SparseRow<Self>>, Vec<usize>) {
@@ -65,7 +116,7 @@ pub trait F4Field: Field + Send + Sync {
     /// Reduce `rows` modulo the monic `pivots` (distinct leading columns), then echelonize and
     /// interreduce the remainders, returning the nonzero monic rows.
     fn echelonize(
-        pivots: &[SparseRow<Self>],
+        pivots: &Reducers<Self>,
         rows: &[SparseRow<Self>],
         ncols: usize,
     ) -> Vec<SparseRow<Self>> {
@@ -74,11 +125,11 @@ pub trait F4Field: Field + Send + Sync {
 
     /// Fully reduce each row modulo the monic `pivots` (distinct leading columns).
     fn reduce_rows(
-        pivots: &[SparseRow<Self>],
+        pivots: &Reducers<Self>,
         rows: &[SparseRow<Self>],
         ncols: usize,
     ) -> Vec<SparseRow<Self>> {
-        let table = Table::new(pivots, ncols);
+        let table = Table::new(pivots.view(&pivots.coefficients), ncols);
         rows.iter()
             .map(|r| reduce_generic(r, &table, ncols))
             .collect()
@@ -99,7 +150,7 @@ impl F4Field for BigRational {
 
 impl<const P: u64> F4Field for PrimeField<P> {
     fn echelonize_traced(
-        pivots: &[SparseRow<Self>],
+        pivots: &Reducers<Self>,
         rows: &[SparseRow<Self>],
         ncols: usize,
     ) -> (Vec<SparseRow<Self>>, Vec<usize>) {
@@ -107,7 +158,7 @@ impl<const P: u64> F4Field for PrimeField<P> {
     }
 
     fn echelonize(
-        pivots: &[SparseRow<Self>],
+        pivots: &Reducers<Self>,
         rows: &[SparseRow<Self>],
         ncols: usize,
     ) -> Vec<SparseRow<Self>> {
@@ -115,7 +166,7 @@ impl<const P: u64> F4Field for PrimeField<P> {
     }
 
     fn reduce_rows(
-        pivots: &[SparseRow<Self>],
+        pivots: &Reducers<Self>,
         rows: &[SparseRow<Self>],
         ncols: usize,
     ) -> Vec<SparseRow<Self>> {
@@ -125,7 +176,7 @@ impl<const P: u64> F4Field for PrimeField<P> {
 
 impl F4Field for Zp {
     fn echelonize_traced(
-        pivots: &[SparseRow<Self>],
+        pivots: &Reducers<Self>,
         rows: &[SparseRow<Self>],
         ncols: usize,
     ) -> (Vec<SparseRow<Self>>, Vec<usize>) {
@@ -133,7 +184,7 @@ impl F4Field for Zp {
     }
 
     fn echelonize(
-        pivots: &[SparseRow<Self>],
+        pivots: &Reducers<Self>,
         rows: &[SparseRow<Self>],
         ncols: usize,
     ) -> Vec<SparseRow<Self>> {
@@ -141,7 +192,7 @@ impl F4Field for Zp {
     }
 
     fn reduce_rows(
-        pivots: &[SparseRow<Self>],
+        pivots: &Reducers<Self>,
         rows: &[SparseRow<Self>],
         ncols: usize,
     ) -> Vec<SparseRow<Self>> {
@@ -318,7 +369,7 @@ struct State<F> {
 }
 
 struct Matrix<F> {
-    pivots: Vec<SparseRow<F>>,
+    pivots: Reducers<F>,
     rows: Vec<SparseRow<F>>,
 }
 
@@ -395,38 +446,46 @@ impl MatrixPlan {
         basis: &[Polynomial<F>],
         rows: impl Iterator<Item = usize>,
     ) -> Option<Matrix<F>> {
-        let encode = |row: &PlannedRow| {
+        // Columns of the basis polynomial, which may have lost terms since planning.
+        let columns = |row: &PlannedRow| {
             let p = basis.get(row.basis)?;
-            let mut coefficients = Vec::with_capacity(p.terms.len());
-            let mut columns = Vec::with_capacity(p.terms.len());
             if row.terms.is_empty() {
                 // Planned from this basis without a trace: terms align with columns.
-                return Some(SparseRow {
-                    columns: row.columns.clone(),
-                    coefficients: p.terms.iter().map(|(_, c)| c.clone()).collect(),
-                });
+                return Some(row.columns.clone());
             }
+            let mut columns = Vec::with_capacity(p.terms.len());
             let mut k = 0;
-            for (m, c) in &p.terms {
+            for (m, _) in &p.terms {
                 while row.terms.get(k).is_some_and(|n| n != m) {
                     k += 1;
                 }
                 row.terms.get(k)?;
                 columns.push(row.columns[k]);
-                coefficients.push(c.clone());
             }
             // Every known pivot must retain its learned leading column.
-            if columns.first() != row.columns.first() {
-                return None;
-            }
-            Some(SparseRow {
-                columns,
-                coefficients,
-            })
+            (columns.first() == row.columns.first()).then_some(columns)
         };
+        let pivots = self
+            .pivots
+            .iter()
+            .map(|row| Some((row.basis, columns(row)?)))
+            .collect::<Option<Vec<_>>>()?;
+        let rows = rows
+            .map(|i| {
+                let row = &self.rows[i];
+                Some(SparseRow {
+                    columns: columns(row)?,
+                    coefficients: basis[row.basis]
+                        .terms
+                        .iter()
+                        .map(|(_, c)| c.clone())
+                        .collect(),
+                })
+            })
+            .collect::<Option<_>>()?;
         Some(Matrix {
-            pivots: self.pivots.iter().map(encode).collect::<Option<_>>()?,
-            rows: rows.map(|i| encode(&self.rows[i])).collect::<Option<_>>()?,
+            pivots: reducers(basis, pivots),
+            rows,
         })
     }
 }
@@ -687,10 +746,13 @@ fn finish<F: F4Field>(
             coefficients: g.terms[skip..].iter().map(|(_, c)| c.clone()).collect(),
         }
     };
-    let pivot_rows: Vec<_> = pivots
-        .iter_mut()
-        .map(|(i, _, cols)| row(&basis[*i], cols, 0))
-        .collect();
+    let pivot_rows = reducers(
+        &basis,
+        pivots.into_iter().map(|(i, _, mut cols)| {
+            cols.iter_mut().for_each(|c| *c = index[*c as usize]);
+            (i, cols)
+        }),
+    );
     let tail_rows: Vec<_> = basis
         .iter()
         .zip(&mut tails)
@@ -738,17 +800,38 @@ fn decode<F: Field>(
     }
 }
 
+// A borrowed row, so known pivots can share coefficients.
+struct Row<'a, F> {
+    columns: &'a [u32],
+    coefficients: &'a [F],
+}
+impl<F> Clone for Row<'_, F> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+impl<F> Copy for Row<'_, F> {}
+impl<F> SparseRow<F> {
+    fn row(&self) -> Row<'_, F> {
+        Row {
+            columns: &self.columns,
+            coefficients: &self.coefficients,
+        }
+    }
+}
+
 /// Pivot rows indexed by leading column.
 trait Pivots<F>: Sync {
-    fn get(&self, col: u32) -> Option<&SparseRow<F>>;
+    fn get(&self, col: u32) -> Option<Row<'_, F>>;
 }
 
 struct Table<'a, F> {
-    rows: &'a [SparseRow<F>],
+    rows: Vec<Row<'a, F>>,
     index: Vec<u32>,
 }
 impl<'a, F> Table<'a, F> {
-    fn new(rows: &'a [SparseRow<F>], ncols: usize) -> Self {
+    fn new(rows: impl IntoIterator<Item = Row<'a, F>>, ncols: usize) -> Self {
+        let rows: Vec<_> = rows.into_iter().collect();
         let mut index = vec![u32::MAX; ncols];
         for (k, row) in rows.iter().enumerate() {
             if let Some(&c) = row.columns.first() {
@@ -759,8 +842,8 @@ impl<'a, F> Table<'a, F> {
     }
 }
 impl<F: Sync> Pivots<F> for Table<'_, F> {
-    fn get(&self, col: u32) -> Option<&SparseRow<F>> {
-        self.rows.get(self.index[col as usize] as usize)
+    fn get(&self, col: u32) -> Option<Row<'_, F>> {
+        self.rows.get(self.index[col as usize] as usize).copied()
     }
 }
 
@@ -770,10 +853,10 @@ struct Claimed<'a, F> {
     slots: Vec<OnceLock<(usize, SparseRow<F>)>>,
 }
 impl<F: Send + Sync> Pivots<F> for Claimed<'_, F> {
-    fn get(&self, col: u32) -> Option<&SparseRow<F>> {
+    fn get(&self, col: u32) -> Option<Row<'_, F>> {
         self.known
             .get(col)
-            .or_else(|| self.slots[col as usize].get().map(|(_, r)| r))
+            .or_else(|| self.slots[col as usize].get().map(|(_, r)| r.row()))
     }
 }
 
@@ -840,7 +923,7 @@ impl<C: Residue> Kernel<C> for Dense {
         reduce_dense(row, pivots, buf, self.p)
     }
     fn normalize(&self, row: &mut SparseRow<C>) {
-        normalize_residues(row, self.p);
+        normalize_residues(&mut row.coefficients, self.p);
     }
 }
 
@@ -867,13 +950,12 @@ fn map_rows<T: Sync, R: Send, S>(
 // scheduling, though which rows are reported live (independent) may.
 fn echelon<F: Clone + Send + Sync, K: Kernel<F>>(
     kernel: &K,
-    pivots: &[SparseRow<F>],
+    known: &Table<'_, F>,
     rows: &[SparseRow<F>],
     ncols: usize,
 ) -> (Vec<SparseRow<F>>, Vec<usize>) {
-    let known = Table::new(pivots, ncols);
     let claimed = Claimed {
-        known: &known,
+        known,
         slots: (0..ncols).map(|_| OnceLock::new()).collect(),
     };
     let mut order: Vec<usize> = (0..rows.len())
@@ -901,7 +983,7 @@ fn echelon<F: Clone + Send + Sync, K: Kernel<F>>(
         .unzip();
     // The column sweep clears every pivot column it meets, fill-in included, so each
     // tail reduces independently against the unreduced echelon form.
-    let table = Table::new(&new, ncols);
+    let table = Table::new(new.iter().map(SparseRow::row), ncols);
     let reduced = map_rows(
         &new,
         || kernel.scratch(),
@@ -923,11 +1005,12 @@ fn echelon<F: Clone + Send + Sync, K: Kernel<F>>(
 }
 
 fn echelonize_generic<F: Field + Send + Sync>(
-    pivots: &[SparseRow<F>],
+    pivots: &Reducers<F>,
     rows: &[SparseRow<F>],
     ncols: usize,
 ) -> Vec<SparseRow<F>> {
-    echelon(&Generic(ncols), pivots, rows, ncols).0
+    let known = Table::new(pivots.view(&pivots.coefficients), ncols);
+    echelon(&Generic(ncols), &known, rows, ncols).0
 }
 
 // Span of a row's columns, as buffer indices.
@@ -954,11 +1037,11 @@ fn reduce_generic<F: Field>(
             && let Some(piv) = pivots.get(j as u32)
         {
             let c = std::mem::replace(&mut buf[j], F::zero());
-            for (&pc, pv) in piv.columns.iter().zip(&piv.coefficients).skip(1) {
+            for (&pc, pv) in piv.columns.iter().zip(piv.coefficients).skip(1) {
                 let pc = pc as usize;
                 buf[pc] = buf[pc].clone() - c.clone() * pv.clone();
             }
-            hi = hi.max(span(&piv.columns).1);
+            hi = hi.max(span(piv.columns).1);
         }
         j += 1;
     }
@@ -980,7 +1063,7 @@ fn compress<F: Field>(buf: Vec<F>, lo: usize) -> SparseRow<F> {
 }
 
 fn echelonize_modular<F: ModularField + Send + Sync>(
-    pivots: &[SparseRow<F>],
+    pivots: &Reducers<F>,
     rows: &[SparseRow<F>],
     ncols: usize,
 ) -> Vec<SparseRow<F>> {
@@ -988,7 +1071,7 @@ fn echelonize_modular<F: ModularField + Send + Sync>(
 }
 
 fn echelonize_modular_traced<F: ModularField + Send + Sync>(
-    pivots: &[SparseRow<F>],
+    pivots: &Reducers<F>,
     rows: &[SparseRow<F>],
     ncols: usize,
 ) -> (Vec<SparseRow<F>>, Vec<usize>) {
@@ -1004,17 +1087,18 @@ fn echelonize_modular_traced<F: ModularField + Send + Sync>(
 
 fn echelon_residues<F: ModularField + Send + Sync, C: Residue>(
     p: u64,
-    pivots: &[SparseRow<F>],
+    pivots: &Reducers<F>,
     rows: &[SparseRow<F>],
     ncols: usize,
 ) -> (Vec<SparseRow<F>>, Vec<usize>) {
     let (known, pending) = residues::<F, C>(p, pivots, rows);
+    let known = Table::new(pivots.view(&known), ncols);
     let (reduced, live) = echelon(&Dense { p, ncols }, &known, &pending, ncols);
     (lift(reduced, p), live)
 }
 
 fn reduce_rows_modular<F: ModularField + Send + Sync>(
-    pivots: &[SparseRow<F>],
+    pivots: &Reducers<F>,
     rows: &[SparseRow<F>],
     ncols: usize,
 ) -> Vec<SparseRow<F>> {
@@ -1027,13 +1111,13 @@ fn reduce_rows_modular<F: ModularField + Send + Sync>(
 
 fn reduce_residues<F: ModularField + Send + Sync, C: Residue>(
     p: u64,
-    pivots: &[SparseRow<F>],
+    pivots: &Reducers<F>,
     rows: &[SparseRow<F>],
     ncols: usize,
 ) -> Vec<SparseRow<F>> {
     let (known, pending) = residues::<F, C>(p, pivots, rows);
     let kernel = Dense { p, ncols };
-    let table = Table::new(&known, ncols);
+    let table = Table::new(pivots.view(&known), ncols);
     let reduced = map_rows(
         &pending,
         || Kernel::<C>::scratch(&kernel),
@@ -1043,36 +1127,37 @@ fn reduce_residues<F: ModularField + Send + Sync, C: Residue>(
 }
 
 // The modulus, or `None` when every coefficient is zero and so none can be recovered.
-fn modulus<F: ModularField>(pivots: &[SparseRow<F>], rows: &[SparseRow<F>]) -> Option<u64> {
+fn modulus<F: ModularField>(pivots: &Reducers<F>, rows: &[SparseRow<F>]) -> Option<u64> {
     pivots
+        .coefficients
         .iter()
-        .chain(rows)
-        .flat_map(|r| &r.coefficients)
+        .flatten()
+        .chain(rows.iter().flat_map(|r| &r.coefficients))
         .map(ModularField::modulus)
         .find(|&m| m != 0)
 }
 
-type Residues<C> = (Vec<SparseRow<C>>, Vec<SparseRow<C>>);
+type Residues<C> = (Vec<Vec<C>>, Vec<SparseRow<C>>);
 
-// Residues of monic-normalized pivots and of rows.
+// Residues of monic-normalized pivot coefficients and of rows.
 fn residues<F: ModularField, C: Residue>(
     p: u64,
-    pivots: &[SparseRow<F>],
+    pivots: &Reducers<F>,
     rows: &[SparseRow<F>],
 ) -> Residues<C> {
-    let convert = |r: &SparseRow<F>| SparseRow {
-        columns: r.columns.clone(),
-        coefficients: r
-            .coefficients
-            .iter()
-            .map(|v| C::new(v.residue_mod(p)))
-            .collect(),
-    };
-    let mut known: Vec<_> = pivots.iter().map(convert).collect();
-    for r in &mut known {
-        normalize_residues(r, p);
+    let convert = |cs: &[F]| -> Vec<C> { cs.iter().map(|v| C::new(v.residue_mod(p))).collect() };
+    let mut known: Vec<_> = pivots.coefficients.iter().map(|cs| convert(cs)).collect();
+    for cs in &mut known {
+        normalize_residues(cs, p);
     }
-    (known, rows.iter().map(convert).collect())
+    let rows = rows
+        .iter()
+        .map(|r| SparseRow {
+            columns: r.columns.clone(),
+            coefficients: convert(&r.coefficients),
+        })
+        .collect();
+    (known, rows)
 }
 
 fn lift<F: ModularField, C: Residue>(rows: Vec<SparseRow<C>>, p: u64) -> Vec<SparseRow<F>> {
@@ -1088,15 +1173,15 @@ fn lift<F: ModularField, C: Residue>(rows: Vec<SparseRow<C>>, p: u64) -> Vec<Spa
         .collect()
 }
 
-fn normalize_residues<C: Residue>(r: &mut SparseRow<C>, p: u64) {
-    let Some(&lead) = r.coefficients.first() else {
+fn normalize_residues<C: Residue>(coefficients: &mut [C], p: u64) {
+    let Some(&lead) = coefficients.first() else {
         return;
     };
     if lead.into() == 1 {
         return;
     }
     let inv = inv_mod(lead.into(), p);
-    for v in &mut r.coefficients {
+    for v in coefficients {
         *v = C::new(mul_mod((*v).into(), inv, p));
     }
 }
@@ -1132,7 +1217,7 @@ fn reduce_dense<C: Residue>(
         let v = std::mem::take(&mut buf[j]) % p;
         if v != 0 {
             let c = p - v;
-            hi = hi.max(span(&piv.columns).1);
+            hi = hi.max(span(piv.columns).1);
             let tail = piv.columns[1..].iter().zip(&piv.coefficients[1..]);
             if deferred {
                 for (&pc, &pv) in tail {
@@ -1243,6 +1328,7 @@ mod trace_tests {
                     coefficients: (0..ncols).map(|_| next()).collect(),
                 })
                 .collect();
+            let pivots = Reducers::from(pivots);
             let expected = echelonize_generic(&pivots, &rows, ncols);
             let actual = echelonize_modular(&pivots, &rows, ncols);
             assert_eq!(actual.len(), expected.len());
