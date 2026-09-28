@@ -26,7 +26,11 @@ use num_rational::BigRational;
 use polycore::modp::{add as add_mod, inv as inv_mod, mul as mul_mod};
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
-use std::collections::{HashMap, HashSet, VecDeque};
+use rustc_hash::{FxHashMap as HashMap, FxHashSet as HashSet};
+use std::borrow::Borrow;
+use std::collections::VecDeque;
+use std::hash::{Hash, Hasher};
+use std::sync::OnceLock;
 
 /// A sparse matrix row with columns in ascending index order (descending monomial order).
 #[derive(Debug, Clone)]
@@ -67,6 +71,18 @@ pub trait F4Field: Field + Send + Sync {
     ) -> Vec<SparseRow<Self>> {
         echelonize_generic(pivots, rows, ncols)
     }
+
+    /// Fully reduce each row modulo the monic `pivots` (distinct leading columns).
+    fn reduce_rows(
+        pivots: &[SparseRow<Self>],
+        rows: &[SparseRow<Self>],
+        ncols: usize,
+    ) -> Vec<SparseRow<Self>> {
+        let table = Table::new(pivots, ncols);
+        rows.iter()
+            .map(|r| reduce_generic(r, &table, ncols))
+            .collect()
+    }
 }
 
 impl F4Field for BigRational {
@@ -97,6 +113,14 @@ impl<const P: u64> F4Field for PrimeField<P> {
     ) -> Vec<SparseRow<Self>> {
         echelonize_modular(pivots, rows, ncols)
     }
+
+    fn reduce_rows(
+        pivots: &[SparseRow<Self>],
+        rows: &[SparseRow<Self>],
+        ncols: usize,
+    ) -> Vec<SparseRow<Self>> {
+        reduce_rows_modular(pivots, rows, ncols)
+    }
 }
 
 impl F4Field for Zp {
@@ -114,6 +138,14 @@ impl F4Field for Zp {
         ncols: usize,
     ) -> Vec<SparseRow<Self>> {
         echelonize_modular(pivots, rows, ncols)
+    }
+
+    fn reduce_rows(
+        pivots: &[SparseRow<Self>],
+        rows: &[SparseRow<Self>],
+        ncols: usize,
+    ) -> Vec<SparseRow<Self>> {
+        reduce_rows_modular(pivots, rows, ncols)
     }
 }
 
@@ -162,7 +194,7 @@ fn compute<F: F4Field>(
     }
     while !state.pairs.is_empty() {
         let selected = state.select();
-        let plan = state.symbolic_preprocessing(&selected, &order);
+        let plan = state.symbolic_preprocessing(&selected, &order, trace.is_some());
         let matrix = plan
             .execute(&state.basis)
             .unwrap_or_else(|| unreachable!("fresh matrix plan"));
@@ -196,7 +228,7 @@ fn compute<F: F4Field>(
         .zip(state.active)
         .filter_map(|(poly, active)| active.then_some(poly))
         .collect();
-    finish_basis(basis, canonicalize)
+    finish(basis, canonicalize)
 }
 
 /// Coefficient-independent F4 plans, learned at a prime and reusable at other primes.
@@ -254,7 +286,7 @@ impl F4Trace {
         if basis.len() != self.active.len() {
             return None;
         }
-        finish_basis(
+        finish(
             basis
                 .into_iter()
                 .zip(&self.active)
@@ -286,26 +318,61 @@ struct Matrix<F> {
     rows: Vec<SparseRow<F>>,
 }
 
+// Keyed by exponent slice, so a product is looked up before it is allocated.
+struct Key(Monomial);
+impl PartialEq for Key {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.exps() == other.0.exps()
+    }
+}
+impl Eq for Key {}
+impl Hash for Key {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.0.exps().hash(state);
+    }
+}
+impl Borrow<[u32]> for Key {
+    fn borrow(&self) -> &[u32] {
+        self.0.exps()
+    }
+}
+
 #[derive(Default)]
 struct MonomialTable {
-    ids: HashMap<Monomial, u32>,
+    ids: HashMap<Key, u32>,
     monomials: Vec<Monomial>,
+    scratch: Vec<u32>,
 }
 impl MonomialTable {
-    #[allow(clippy::expect_used)] // More than 2^32 matrix columns cannot fit in practical memory.
-    fn intern(&mut self, m: Monomial) -> (u32, bool) {
-        if let Some(&id) = self.ids.get(&m) {
-            return (id, false);
+    fn intern(&mut self, m: &Monomial) -> (u32, bool) {
+        match self.ids.get(m.exps()) {
+            Some(&id) => (id, false),
+            None => (self.insert(m.clone()), true),
         }
+    }
+
+    fn intern_product(&mut self, a: &Monomial, b: &Monomial) -> (u32, bool) {
+        self.scratch.clear();
+        self.scratch
+            .extend(a.exps().iter().zip(b.exps()).map(|(x, y)| x + y));
+        match self.ids.get(self.scratch.as_slice()) {
+            Some(&id) => (id, false),
+            None => (self.insert(Monomial::new(self.scratch.as_slice())), true),
+        }
+    }
+
+    #[allow(clippy::expect_used)] // More than 2^32 matrix columns cannot fit in practical memory.
+    fn insert(&mut self, m: Monomial) -> u32 {
         let id = u32::try_from(self.monomials.len()).expect("F4 matrix exceeds u32 columns");
         self.monomials.push(m.clone());
-        self.ids.insert(m, id);
-        (id, true)
+        self.ids.insert(Key(m), id);
+        id
     }
 }
 
 struct PlannedRow {
     basis: usize,
+    // Support at planning time, kept only when recording a trace.
     terms: Vec<Monomial>,
     columns: Vec<usize>,
 }
@@ -328,6 +395,13 @@ impl MatrixPlan {
             let p = basis.get(row.basis)?;
             let mut coefficients = Vec::with_capacity(p.terms.len());
             let mut columns = Vec::with_capacity(p.terms.len());
+            if row.terms.is_empty() {
+                // Planned from this basis without a trace: terms align with columns.
+                return Some(SparseRow {
+                    columns: row.columns.clone(),
+                    coefficients: p.terms.iter().map(|(_, c)| c.clone()).collect(),
+                });
+            }
             let mut k = 0;
             for (m, c) in &p.terms {
                 while row.terms.get(k).is_some_and(|n| n != m) {
@@ -433,12 +507,17 @@ impl<F: F4Field> State<F> {
             .min_by_key(|&i| self.basis[i].terms.len())
     }
 
-    fn symbolic_preprocessing(&self, pairs: &[Pair], order: &MonomialOrder) -> MatrixPlan {
+    fn symbolic_preprocessing(
+        &self,
+        pairs: &[Pair],
+        order: &MonomialOrder,
+        traced: bool,
+    ) -> MatrixPlan {
         let mut table = MonomialTable::default();
-        let mut multiples: HashSet<(usize, Monomial)> = HashSet::new();
-        let mut by_lcm: HashMap<u32, Vec<(usize, Monomial)>> = HashMap::new();
+        let mut multiples: HashSet<(usize, Monomial)> = HashSet::default();
+        let mut by_lcm: HashMap<u32, Vec<(usize, Monomial)>> = HashMap::default();
         for p in pairs {
-            let (id, _) = table.intern(p.lcm.clone());
+            let (id, _) = table.intern(&p.lcm);
             for i in [p.i, p.j] {
                 if let Some(mult) = p.lcm.quo(self.lm(i))
                     && multiples.insert((i, mult.clone()))
@@ -453,7 +532,7 @@ impl<F: F4Field> State<F> {
         let visit = |i: usize, mult: &Monomial, table: &mut MonomialTable, queue: &mut Vec<u32>| {
             let mut columns = Vec::with_capacity(self.basis[i].terms.len());
             for (m, _) in &self.basis[i].terms {
-                let (id, fresh) = table.intern(m * mult);
+                let (id, fresh) = table.intern_product(m, mult);
                 if fresh {
                     queue.push(id);
                 }
@@ -461,7 +540,11 @@ impl<F: F4Field> State<F> {
             }
             PlannedRow {
                 basis: i,
-                terms: self.basis[i].support(),
+                terms: if traced {
+                    self.basis[i].support()
+                } else {
+                    Vec::new()
+                },
                 columns,
             }
         };
@@ -517,6 +600,96 @@ impl<F: F4Field> State<F> {
     }
 }
 
+/// Minimize and, when `canonicalize` is set, interreduce with one Macaulay matrix: the tails
+/// of the minimal basis are the rows, and symbolic preprocessing supplies the reducers.
+fn finish<F: F4Field>(
+    basis: Vec<Polynomial<F>>,
+    canonicalize: bool,
+) -> Result<Vec<Polynomial<F>>, GroebnerError> {
+    let basis = finish_basis(basis, false)?;
+    if !canonicalize {
+        return Ok(basis);
+    }
+    let first = basis.first().ok_or(GroebnerError::EmptyInput)?;
+    let (nvars, order) = (first.nvars, first.order.clone());
+    let basis: Vec<_> = basis.iter().map(PolynomialExt::make_monic).collect();
+    let masks: Vec<u64> = basis
+        .iter()
+        .map(|g| divisibility_mask(&g.terms[0].0))
+        .collect();
+    let reducer = |m: &Monomial| {
+        let mask = divisibility_mask(m);
+        (0..basis.len())
+            .filter(|&i| masks[i] & !mask == 0 && basis[i].terms[0].0.divides(m))
+            .min_by_key(|&i| basis[i].terms.len())
+    };
+    let mut table = MonomialTable::default();
+    let mut queue = Vec::new();
+    let fresh = |(id, fresh): (u32, bool), queue: &mut Vec<u32>| {
+        if fresh {
+            queue.push(id);
+        }
+        id as usize
+    };
+    let mut tails: Vec<Vec<usize>> = basis
+        .iter()
+        .map(|g| {
+            g.terms[1..]
+                .iter()
+                .map(|(m, _)| fresh(table.intern(m), &mut queue))
+                .collect()
+        })
+        .collect();
+    let mut pivots: Vec<(usize, Monomial, Vec<usize>)> = Vec::new();
+    while let Some(id) = queue.pop() {
+        let m = table.monomials[id as usize].clone();
+        let Some(i) = reducer(&m) else { continue };
+        let Some(mult) = m.quo(&basis[i].terms[0].0) else {
+            continue;
+        };
+        let mut columns = vec![id as usize];
+        for (t, _) in &basis[i].terms[1..] {
+            columns.push(fresh(table.intern_product(t, &mult), &mut queue));
+        }
+        pivots.push((i, mult, columns));
+    }
+    let mut ids: Vec<usize> = (0..table.monomials.len()).collect();
+    ids.sort_by(|&a, &b| order.compare(&table.monomials[b], &table.monomials[a]));
+    let mut index = vec![0; ids.len()];
+    for (col, &id) in ids.iter().enumerate() {
+        index[id] = col;
+    }
+    let columns: Vec<Monomial> = ids.iter().map(|&id| table.monomials[id].clone()).collect();
+    let row = |g: &Polynomial<F>, cols: &mut [usize], skip: usize| {
+        cols.iter_mut().for_each(|c| *c = index[*c]);
+        SparseRow {
+            columns: cols.to_vec(),
+            coefficients: g.terms[skip..].iter().map(|(_, c)| c.clone()).collect(),
+        }
+    };
+    let pivot_rows: Vec<_> = pivots
+        .iter_mut()
+        .map(|(i, _, cols)| row(&basis[*i], cols, 0))
+        .collect();
+    let tail_rows: Vec<_> = basis
+        .iter()
+        .zip(&mut tails)
+        .map(|(g, cols)| row(g, cols, 1))
+        .collect();
+    let reduced = F::reduce_rows(&pivot_rows, &tail_rows, columns.len());
+    let mut out: Vec<Polynomial<F>> = basis
+        .into_iter()
+        .zip(reduced)
+        .map(|(g, tail)| {
+            let mut p = decode(&tail, &columns, nvars, &order);
+            p.terms.insert(0, g.terms[0].clone());
+            p
+        })
+        .collect();
+    out.sort_by(|a, b| crate::groebner::compare_leading(b, a, &order));
+    Ok(out)
+}
+
 fn decode<F: Field>(
     row: &SparseRow<F>,
     columns: &[Monomial],
@@ -536,58 +709,209 @@ fn decode<F: Field>(
     }
 }
 
-fn pivot_table<F>(pivots: &[SparseRow<F>], ncols: usize) -> Vec<usize> {
-    let mut table = vec![usize::MAX; ncols];
-    for (k, row) in pivots.iter().enumerate() {
-        if let Some(&c) = row.columns.first() {
-            table[c] = k;
-        }
-    }
-    table
+/// Pivot rows indexed by leading column.
+trait Pivots<F>: Sync {
+    fn get(&self, col: usize) -> Option<&SparseRow<F>>;
 }
 
-fn echelonize_generic<F: Field>(
+struct Table<'a, F> {
+    rows: &'a [SparseRow<F>],
+    index: Vec<usize>,
+}
+impl<'a, F> Table<'a, F> {
+    fn new(rows: &'a [SparseRow<F>], ncols: usize) -> Self {
+        let mut index = vec![usize::MAX; ncols];
+        for (k, row) in rows.iter().enumerate() {
+            if let Some(&c) = row.columns.first() {
+                index[c] = k;
+            }
+        }
+        Self { rows, index }
+    }
+}
+impl<F: Sync> Pivots<F> for Table<'_, F> {
+    fn get(&self, col: usize) -> Option<&SparseRow<F>> {
+        self.rows.get(self.index[col])
+    }
+}
+
+// Known pivots plus one slot per column for rows claimed during elimination.
+struct Claimed<'a, F> {
+    known: &'a Table<'a, F>,
+    slots: Vec<OnceLock<(usize, SparseRow<F>)>>,
+}
+impl<F: Send + Sync> Pivots<F> for Claimed<'_, F> {
+    fn get(&self, col: usize) -> Option<&SparseRow<F>> {
+        self.known
+            .get(col)
+            .or_else(|| self.slots[col].get().map(|(_, r)| r))
+    }
+}
+
+/// Row reduction and normalization for one coefficient representation.
+trait Kernel<F>: Sync {
+    type Scratch;
+    fn scratch(&self) -> Self::Scratch;
+    fn reduce(
+        &self,
+        row: &SparseRow<F>,
+        pivots: &impl Pivots<F>,
+        scratch: &mut Self::Scratch,
+    ) -> SparseRow<F>;
+    fn normalize(&self, row: &mut SparseRow<F>);
+}
+
+struct Generic(usize);
+impl<F: Field + Send + Sync> Kernel<F> for Generic {
+    type Scratch = ();
+    fn scratch(&self) {}
+    fn reduce(&self, row: &SparseRow<F>, pivots: &impl Pivots<F>, (): &mut ()) -> SparseRow<F> {
+        reduce_generic(row, pivots, self.0)
+    }
+    fn normalize(&self, row: &mut SparseRow<F>) {
+        let inv = row.coefficients[0]
+            .inverse()
+            .unwrap_or_else(|| unreachable!("nonzero coefficient"));
+        for v in &mut row.coefficients {
+            *v = v.clone() * inv.clone();
+        }
+    }
+}
+
+struct Dense {
+    p: u64,
+    ncols: usize,
+}
+impl Kernel<u64> for Dense {
+    type Scratch = Vec<u64>;
+    fn scratch(&self) -> Vec<u64> {
+        vec![0; self.ncols]
+    }
+    fn reduce(
+        &self,
+        row: &SparseRow<u64>,
+        pivots: &impl Pivots<u64>,
+        buf: &mut Vec<u64>,
+    ) -> SparseRow<u64> {
+        reduce_dense_u64(row, pivots, buf, self.p)
+    }
+    fn normalize(&self, row: &mut SparseRow<u64>) {
+        normalize_u64(row, self.p);
+    }
+}
+
+// Map rows in parallel blocks, each worker reusing one scratch value.
+fn map_rows<T: Sync, R: Send, S>(
+    rows: &[T],
+    scratch: impl Fn() -> S + Sync,
+    f: impl Fn(&T, &mut S) -> R + Sync,
+) -> Vec<R> {
+    let block = |block: &[T]| {
+        let mut s = scratch();
+        block.iter().map(|r| f(r, &mut s)).collect::<Vec<_>>()
+    };
+    #[cfg(feature = "parallel")]
+    if rows.len() >= 64 {
+        return rows.par_chunks(32).flat_map_iter(block).collect();
+    }
+    block(rows)
+}
+
+// Reduce `rows` by the monic `pivots` and by each other, then back substitute. Workers
+// claim free leading columns concurrently, and a row that loses a claim keeps reducing
+// by the winner. The reduced echelon form is unique, so the result does not depend on
+// scheduling, though which rows are reported live (independent) may.
+fn echelon<F: Clone + Send + Sync, K: Kernel<F>>(
+    kernel: &K,
+    pivots: &[SparseRow<F>],
+    rows: &[SparseRow<F>],
+    ncols: usize,
+) -> (Vec<SparseRow<F>>, Vec<usize>) {
+    let known = Table::new(pivots, ncols);
+    let claimed = Claimed {
+        known: &known,
+        slots: (0..ncols).map(|_| OnceLock::new()).collect(),
+    };
+    let mut order: Vec<usize> = (0..rows.len())
+        .filter(|&i| !rows[i].columns.is_empty())
+        .collect();
+    order.sort_by_key(|&i| (rows[i].columns[0], rows[i].columns.len()));
+    map_rows(
+        &order,
+        || kernel.scratch(),
+        |&i, s| {
+            let mut r = kernel.reduce(&rows[i], &claimed, s);
+            while let Some(&lead) = r.columns.first() {
+                kernel.normalize(&mut r);
+                match claimed.slots[lead].set((i, r)) {
+                    Ok(()) => return,
+                    Err((_, lost)) => r = kernel.reduce(&lost, &claimed, s),
+                }
+            }
+        },
+    );
+    let (live, new): (Vec<usize>, Vec<SparseRow<F>>) = claimed
+        .slots
+        .into_iter()
+        .filter_map(OnceLock::into_inner)
+        .unzip();
+    // The column sweep clears every pivot column it meets, fill-in included, so each
+    // tail reduces independently against the unreduced echelon form.
+    let table = Table::new(&new, ncols);
+    let reduced = map_rows(
+        &new,
+        || kernel.scratch(),
+        |r, s| {
+            if !r.columns[1..].iter().any(|&c| table.get(c).is_some()) {
+                return r.clone();
+            }
+            let tail = SparseRow {
+                columns: r.columns[1..].to_vec(),
+                coefficients: r.coefficients[1..].to_vec(),
+            };
+            let mut out = kernel.reduce(&tail, &table, s);
+            out.columns.insert(0, r.columns[0]);
+            out.coefficients.insert(0, r.coefficients[0].clone());
+            out
+        },
+    );
+    (reduced, live)
+}
+
+fn echelonize_generic<F: Field + Send + Sync>(
     pivots: &[SparseRow<F>],
     rows: &[SparseRow<F>],
     ncols: usize,
 ) -> Vec<SparseRow<F>> {
-    let table = pivot_table(pivots, ncols);
-    let reduce = |row: &SparseRow<F>, pivots: &[SparseRow<F>], table: &[usize]| {
-        let mut buf: Vec<F> = vec![F::zero(); ncols];
-        let (mut lo, mut hi) = (ncols, 0);
-        for (c, v) in row.columns.iter().zip(&row.coefficients) {
-            buf[*c] = v.clone();
-            lo = lo.min(*c);
-            hi = hi.max(*c);
-        }
-        let mut j = lo;
-        while j <= hi && j < ncols {
-            if !buf[j].is_zero() && table[j] != usize::MAX {
-                let piv = &pivots[table[j]];
-                let c = std::mem::replace(&mut buf[j], F::zero());
-                for (pc, pv) in piv.columns.iter().zip(&piv.coefficients).skip(1) {
-                    buf[*pc] = buf[*pc].clone() - c.clone() * pv.clone();
-                }
-                hi = hi.max(*piv.columns.last().unwrap_or(&0));
+    echelon(&Generic(ncols), pivots, rows, ncols).0
+}
+
+fn reduce_generic<F: Field>(
+    row: &SparseRow<F>,
+    pivots: &impl Pivots<F>,
+    ncols: usize,
+) -> SparseRow<F> {
+    let mut buf: Vec<F> = vec![F::zero(); ncols];
+    let (mut lo, mut hi) = (ncols, 0);
+    for (c, v) in row.columns.iter().zip(&row.coefficients) {
+        buf[*c] = v.clone();
+        lo = lo.min(*c);
+        hi = hi.max(*c);
+    }
+    let mut j = lo;
+    while j <= hi && j < ncols {
+        if !buf[j].is_zero()
+            && let Some(piv) = pivots.get(j)
+        {
+            let c = std::mem::replace(&mut buf[j], F::zero());
+            for (pc, pv) in piv.columns.iter().zip(&piv.coefficients).skip(1) {
+                buf[*pc] = buf[*pc].clone() - c.clone() * pv.clone();
             }
-            j += 1;
+            hi = hi.max(*piv.columns.last().unwrap_or(&0));
         }
-        compress(buf, lo)
-    };
-    let reduced: Vec<SparseRow<F>> = rows.iter().map(|r| reduce(r, pivots, &table)).collect();
-    echelon_new_rows(
-        reduced,
-        ncols,
-        |r, p, t| reduce(r, p, t),
-        |r| {
-            let inv = r.coefficients[0]
-                .inverse()
-                .unwrap_or_else(|| unreachable!("nonzero coefficient"));
-            for v in &mut r.coefficients {
-                *v = v.clone() * inv.clone();
-            }
-        },
-    )
+        j += 1;
+    }
+    compress(buf, lo)
 }
 
 fn compress<F: Field>(buf: Vec<F>, lo: usize) -> SparseRow<F> {
@@ -604,54 +928,6 @@ fn compress<F: Field>(buf: Vec<F>, lo: usize) -> SparseRow<F> {
     row
 }
 
-// Echelonize rows already reduced against the main pivots, then back substitute.
-fn echelon_new_rows<F: Clone>(
-    rows: Vec<SparseRow<F>>,
-    ncols: usize,
-    reduce: impl Fn(&SparseRow<F>, &[SparseRow<F>], &[usize]) -> SparseRow<F>,
-    normalize: impl Fn(&mut SparseRow<F>),
-) -> Vec<SparseRow<F>> {
-    echelon_new_rows_traced(rows, ncols, reduce, normalize).0
-}
-
-fn echelon_new_rows_traced<F: Clone>(
-    rows: Vec<SparseRow<F>>,
-    ncols: usize,
-    reduce: impl Fn(&SparseRow<F>, &[SparseRow<F>], &[usize]) -> SparseRow<F>,
-    normalize: impl Fn(&mut SparseRow<F>),
-) -> (Vec<SparseRow<F>>, Vec<usize>) {
-    let mut rows: Vec<_> = rows
-        .into_iter()
-        .enumerate()
-        .filter(|(_, r)| !r.columns.is_empty())
-        .collect();
-    rows.sort_by_key(|(_, r)| (r.columns[0], r.columns.len()));
-    let mut live = Vec::new();
-    let mut new: Vec<SparseRow<F>> = Vec::new();
-    let mut table = vec![usize::MAX; ncols];
-    for (source, row) in rows {
-        let mut r = reduce(&row, &new, &table);
-        if r.columns.is_empty() {
-            continue;
-        }
-        live.push(source);
-        normalize(&mut r);
-        table[r.columns[0]] = new.len();
-        new.push(r);
-    }
-    for k in (0..new.len()).rev() {
-        let lead = new[k].columns[0];
-        table[lead] = usize::MAX;
-        let mut r = reduce(&new[k], &new, &table);
-        table[lead] = k;
-        if r.columns.first() == Some(&lead) {
-            normalize(&mut r);
-        }
-        new[k] = r;
-    }
-    (new, live)
-}
-
 fn echelonize_modular<F: ModularField + Send + Sync>(
     pivots: &[SparseRow<F>],
     rows: &[SparseRow<F>],
@@ -665,56 +941,58 @@ fn echelonize_modular_traced<F: ModularField + Send + Sync>(
     rows: &[SparseRow<F>],
     ncols: usize,
 ) -> (Vec<SparseRow<F>>, Vec<usize>) {
-    let modulus = pivots
-        .iter()
-        .chain(rows)
-        .flat_map(|r| &r.coefficients)
-        .map(ModularField::modulus)
-        .find(|&m| m != 0);
-    let Some(p) = modulus else {
+    let Some((p, known, pending)) = to_u64(pivots, rows) else {
         return (
             echelonize_generic(pivots, rows, ncols),
             (0..rows.len()).collect(),
         );
     };
-    let to_u64 = |r: &SparseRow<F>| SparseRow {
+    let (reduced, live) = echelon(&Dense { p, ncols }, &known, &pending, ncols);
+    (from_u64(reduced, p), live)
+}
+
+fn reduce_rows_modular<F: ModularField + Send + Sync>(
+    pivots: &[SparseRow<F>],
+    rows: &[SparseRow<F>],
+    ncols: usize,
+) -> Vec<SparseRow<F>> {
+    let Some((p, known, pending)) = to_u64(pivots, rows) else {
+        return rows.to_vec();
+    };
+    let kernel = Dense { p, ncols };
+    let table = Table::new(&known, ncols);
+    let reduced = map_rows(
+        &pending,
+        || kernel.scratch(),
+        |r, s| kernel.reduce(r, &table, s),
+    );
+    from_u64(reduced, p)
+}
+
+type Residues = (u64, Vec<SparseRow<u64>>, Vec<SparseRow<u64>>);
+
+// Residues of monic-normalized pivots and of rows. `None` when every coefficient is
+// zero and so no modulus can be recovered.
+fn to_u64<F: ModularField>(pivots: &[SparseRow<F>], rows: &[SparseRow<F>]) -> Option<Residues> {
+    let p = pivots
+        .iter()
+        .chain(rows)
+        .flat_map(|r| &r.coefficients)
+        .map(ModularField::modulus)
+        .find(|&m| m != 0)?;
+    let convert = |r: &SparseRow<F>| SparseRow {
         columns: r.columns.clone(),
         coefficients: r.coefficients.iter().map(|v| v.residue_mod(p)).collect(),
     };
-    let mut pivots_u64: Vec<SparseRow<u64>> = pivots.iter().map(to_u64).collect();
-    for r in &mut pivots_u64 {
+    let mut known: Vec<_> = pivots.iter().map(convert).collect();
+    for r in &mut known {
         normalize_u64(r, p);
     }
-    let rows_u64: Vec<SparseRow<u64>> = rows.iter().map(to_u64).collect();
-    let table = pivot_table(&pivots_u64, ncols);
-    // Known pivots and new rows occupy separate blocks. Each worker reuses one
-    // dense buffer while reducing a block against the immutable known pivots.
-    let reduce_block = |block: &[SparseRow<u64>]| {
-        let mut scratch = vec![0; ncols];
-        block
-            .iter()
-            .map(|r| reduce_dense_u64(r, &pivots_u64, &table, &mut scratch, p))
-            .collect::<Vec<_>>()
-    };
-    #[cfg(feature = "parallel")]
-    let reduced: Vec<SparseRow<u64>> = if rows_u64.len() >= 64 {
-        rows_u64
-            .par_chunks(32)
-            .flat_map_iter(reduce_block)
-            .collect()
-    } else {
-        reduce_block(&rows_u64)
-    };
-    #[cfg(not(feature = "parallel"))]
-    let reduced: Vec<SparseRow<u64>> = reduce_block(&rows_u64);
-    let scratch = std::cell::RefCell::new(vec![0; ncols]);
-    let reduce = |r: &SparseRow<u64>, piv: &[SparseRow<u64>], t: &[usize]| {
-        reduce_dense_u64(r, piv, t, &mut scratch.borrow_mut(), p)
-    };
+    Some((p, known, rows.iter().map(convert).collect()))
+}
 
-    let (reduced, live) = echelon_new_rows_traced(reduced, ncols, reduce, |r| normalize_u64(r, p));
-    let reduced = reduced
-        .into_iter()
+fn from_u64<F: ModularField>(rows: Vec<SparseRow<u64>>, p: u64) -> Vec<SparseRow<F>> {
+    rows.into_iter()
         .map(|r| SparseRow {
             columns: r.columns,
             coefficients: r
@@ -723,8 +1001,7 @@ fn echelonize_modular_traced<F: ModularField + Send + Sync>(
                 .map(|v| F::from_residue(v, p))
                 .collect(),
         })
-        .collect();
-    (reduced, live)
+        .collect()
 }
 
 fn normalize_u64(r: &mut SparseRow<u64>, p: u64) {
@@ -743,15 +1020,14 @@ fn normalize_u64(r: &mut SparseRow<u64>, p: u64) {
 // Monagan-Pearce dense reduction: sums are reduced lazily while they fit in 64 bits.
 fn reduce_dense_u64(
     row: &SparseRow<u64>,
-    pivots: &[SparseRow<u64>],
-    table: &[usize],
+    pivots: &impl Pivots<u64>,
     buf: &mut [u64],
     p: u64,
 ) -> SparseRow<u64> {
     const LIMIT: u64 = 1 << 63;
     let small = p < (1 << 31);
     let ncols = buf.len();
-    buf.fill(0);
+    // `buf` is all zero on entry and is cleared again while compressing.
     // At most ncols triangular pivot eliminations can contribute to any cell.
     let deferred = small
         && (ncols as u128) * u128::from(p - 1).pow(2) + u128::from(p - 1) <= u128::from(u64::MAX);
@@ -763,11 +1039,16 @@ fn reduce_dense_u64(
     }
     let mut j = lo;
     while j <= hi && j < ncols {
-        let v = buf[j] % p;
-        buf[j] = v;
-        if v != 0 && table[j] != usize::MAX {
-            buf[j] = 0;
-            let piv = &pivots[table[j]];
+        if buf[j] == 0 {
+            j += 1;
+            continue;
+        }
+        let Some(piv) = pivots.get(j) else {
+            j += 1;
+            continue;
+        };
+        let v = std::mem::take(&mut buf[j]) % p;
+        if v != 0 {
             let c = p - v;
             hi = hi.max(*piv.columns.last().unwrap_or(&0));
             if deferred {
@@ -791,14 +1072,13 @@ fn reduce_dense_u64(
         columns: Vec::new(),
         coefficients: Vec::new(),
     };
-    for (c, v) in buf
-        .iter()
-        .copied()
+    for (c, cell) in buf
+        .iter_mut()
         .enumerate()
         .take(hi.saturating_add(1))
         .skip(lo)
     {
-        let v = v % p;
+        let v = std::mem::take(cell) % p;
         if v != 0 {
             out.columns.push(c);
             out.coefficients.push(v);

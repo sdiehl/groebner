@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- Interreduce the final F4 basis with one Macaulay matrix instead of polynomial
+  division, for both direct and per-prime modular runs.
+- Echelonize new F4 rows in parallel: workers claim free pivot columns
+  concurrently, and back substitution reduces every row independently.
+- Intern F4 matrix monomials by exponent slice with FxHash, allocating a product
+  only when it is a new column.
+- Skip zero cells and clear only the touched span in dense modular row reduction.
+
 ## 0.4.1 (2026-09-27)
 
 - Verify exact cofactor certificates for every reconstructed basis polynomial.
