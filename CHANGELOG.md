@@ -9,6 +9,10 @@
 - Intern F4 matrix monomials by exponent slice with FxHash, allocating a product
   only when it is a new column.
 - Skip zero cells and clear only the touched span in dense modular row reduction.
+- Store modular matrix rows as `u32` residues whenever the prime fits in 32 bits.
+- Look up F4 reducers in active elements sorted by length, and filter
+  Gebauer-Moller pair criteria by divisibility mask without allocating.
+- Breaking: `SparseRow::columns` is now `Vec<u32>`.
 
 ## 0.4.1 (2026-09-27)
 

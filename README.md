@@ -80,6 +80,18 @@ assert_eq!(ring.format(&basis[1])?, "y^2 - 1/a");
 
 Several parameters work over `Frac`, the field Q(a, b, ...), behind the `parameters` feature. Its coefficients are cancelled by `zippel-gcd`, and the ring is built with `PolynomialRing::with_parameters`.
 
+## Benchmarks
+
+Reduced basis with `groebner_basis_f4` over GF(32003) in GRevLex, on Apple M5 silicon (10 cores).
+
+| System    | Basis size | Time   |
+| --------- | ---------: | -----: |
+| cyclic8   |        372 | 0.45 s |
+| katsura10 |        537 | 0.51 s |
+| eco12     |        743 | 0.94 s |
+| noon9     |       3682 | 3.45 s |
+| cyclic9   |       1344 | 44.7 s |
+
 ## Test Suite
 
 ```bash
@@ -101,18 +113,6 @@ The classic papers on this topic:
 1. Faugère, J. C. (1999). A new efficient algorithm for computing Gröbner bases (F4). Journal of Pure and Applied Algebra, 139(1-3), 61-88.
 1. Faugère, J. C., Gianni, P., Lazard, D., & Mora, T. (1993). Efficient computation of zero-dimensional Gröbner bases by change of ordering. Journal of Symbolic Computation, 16(4), 329-344.
 1. Monagan, M., & Pearce, R. (2015). A compact parallel implementation of F4. In Proceedings of PASCO 2015 (pp. 95-100).
-
-## Benchmarks
-
-Reduced basis with `groebner_basis_f4` over GF(32003) in GRevLex, on Apple M5 silicon (10 cores).
-
-| System    | Basis size | Time   |
-| --------- | ---------: | -----: |
-| cyclic8   |        372 | 0.61 s |
-| katsura10 |        537 | 0.66 s |
-| eco12     |        743 | 1.22 s |
-| noon9     |       3682 | 7.22 s |
-| cyclic9   |       1344 | 54.1 s |
 
 ## License
 

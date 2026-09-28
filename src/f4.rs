@@ -35,7 +35,7 @@ use std::sync::OnceLock;
 /// A sparse matrix row with columns in ascending index order (descending monomial order).
 #[derive(Debug, Clone)]
 pub struct SparseRow<F> {
-    pub columns: Vec<usize>,
+    pub columns: Vec<u32>,
     pub coefficients: Vec<F>,
 }
 
@@ -183,6 +183,7 @@ fn compute<F: F4Field>(
     let mut state = State {
         basis: Vec::new(),
         active: Vec::new(),
+        by_size: Vec::new(),
         pairs: Vec::new(),
         masks: Vec::new(),
     };
@@ -304,11 +305,14 @@ struct Pair {
     j: usize,
     lcm: Monomial,
     degree: u32,
+    mask: u64,
 }
 
 struct State<F> {
     basis: Vec<Polynomial<F>>,
     active: Vec<bool>,
+    // Active indices by (term count, index), so the first divisor found is the shortest.
+    by_size: Vec<usize>,
     pairs: Vec<Pair>,
     masks: Vec<u64>,
 }
@@ -374,7 +378,7 @@ struct PlannedRow {
     basis: usize,
     // Support at planning time, kept only when recording a trace.
     terms: Vec<Monomial>,
-    columns: Vec<usize>,
+    columns: Vec<u32>,
 }
 struct MatrixPlan {
     columns: Vec<Monomial>,
@@ -436,8 +440,13 @@ impl<F: F4Field> State<F> {
 
     fn pair(&self, i: usize, j: usize) -> Pair {
         let lcm = self.lm(i).lcm(self.lm(j));
-        let degree = lcm.degree();
-        Pair { i, j, lcm, degree }
+        Pair {
+            i,
+            j,
+            degree: lcm.degree(),
+            mask: divisibility_mask(&lcm),
+            lcm,
+        }
     }
 
     // Gebauer-Moller update (Becker and Weispfenning, section 5.5).
@@ -451,7 +460,8 @@ impl<F: F4Field> State<F> {
             return;
         };
         let t = self.basis.len();
-        self.masks.push(divisibility_mask(&lm_h));
+        let mask_h = divisibility_mask(&lm_h);
+        self.masks.push(mask_h);
         self.basis.push(h);
         self.active.push(true);
 
@@ -462,7 +472,7 @@ impl<F: F4Field> State<F> {
         let mut kept: Vec<Pair> = Vec::new();
         while let Some(p) = candidates.pop_front() {
             let coprime = self.lm(p.i).is_coprime(&lm_h);
-            let dominated = |q: &Pair| q.lcm.divides(&p.lcm);
+            let dominated = |q: &Pair| q.mask & !p.mask == 0 && q.lcm.divides(&p.lcm);
             if coprime || !(candidates.iter().any(dominated) || kept.iter().any(dominated)) {
                 kept.push(p);
             }
@@ -475,15 +485,30 @@ impl<F: F4Field> State<F> {
                 .leading_monomial()
                 .unwrap_or_else(|| unreachable!("basis polynomials are nonzero"))
         };
+        let lcm_is = |a: &Monomial, l: &Monomial| {
+            a.exps()
+                .iter()
+                .zip(lm_h.exps())
+                .zip(l.exps())
+                .all(|((x, y), z)| x.max(y) == z)
+        };
         self.pairs.retain(|p| {
-            !lm_h.divides(&p.lcm) || lm(p.i).lcm(&lm_h) == p.lcm || lm(p.j).lcm(&lm_h) == p.lcm
+            mask_h & !p.mask != 0
+                || !lm_h.divides(&p.lcm)
+                || lcm_is(lm(p.i), &p.lcm)
+                || lcm_is(lm(p.j), &p.lcm)
         });
         self.pairs.extend(kept);
         for g in 0..t {
-            if self.active[g] && lm_h.divides(lm(g)) {
+            if self.active[g] && mask_h & !self.masks[g] == 0 && lm_h.divides(lm(g)) {
                 self.active[g] = false;
             }
         }
+        let active = &self.active;
+        self.by_size.retain(|&g| active[g]);
+        let size = |g: usize| (basis[g].terms.len(), g);
+        let at = self.by_size.partition_point(|&g| size(g) < size(t));
+        self.by_size.insert(at, t);
     }
 
     fn select(&mut self) -> Vec<Pair> {
@@ -502,9 +527,10 @@ impl<F: F4Field> State<F> {
 
     fn reducer(&self, m: &Monomial) -> Option<usize> {
         let mask = divisibility_mask(m);
-        (0..self.basis.len())
-            .filter(|&i| self.active[i] && self.masks[i] & !mask == 0 && self.lm(i).divides(m))
-            .min_by_key(|&i| self.basis[i].terms.len())
+        self.by_size
+            .iter()
+            .copied()
+            .find(|&i| self.masks[i] & !mask == 0 && self.lm(i).divides(m))
     }
 
     fn symbolic_preprocessing(
@@ -536,7 +562,7 @@ impl<F: F4Field> State<F> {
                 if fresh {
                     queue.push(id);
                 }
-                columns.push(id as usize);
+                columns.push(id);
             }
             PlannedRow {
                 basis: i,
@@ -578,17 +604,14 @@ impl<F: F4Field> State<F> {
         }
         let mut ids: Vec<usize> = (0..table.monomials.len()).collect();
         ids.sort_by(|&a, &b| order.compare(&table.monomials[b], &table.monomials[a]));
-        let mut index = vec![0; ids.len()];
-        for (col, &id) in ids.iter().enumerate() {
-            index[id] = col;
-        }
+        let index = column_index(&ids);
         let columns = ids
             .into_iter()
             .map(|id| table.monomials[id].clone())
             .collect();
         for row in pivots.iter_mut().chain(&mut rows) {
             for c in &mut row.columns {
-                *c = index[*c];
+                *c = index[*c as usize];
             }
         }
         pivots.sort_by_key(|r| r.columns[0]);
@@ -629,9 +652,9 @@ fn finish<F: F4Field>(
         if fresh {
             queue.push(id);
         }
-        id as usize
+        id
     };
-    let mut tails: Vec<Vec<usize>> = basis
+    let mut tails: Vec<Vec<u32>> = basis
         .iter()
         .map(|g| {
             g.terms[1..]
@@ -640,14 +663,14 @@ fn finish<F: F4Field>(
                 .collect()
         })
         .collect();
-    let mut pivots: Vec<(usize, Monomial, Vec<usize>)> = Vec::new();
+    let mut pivots: Vec<(usize, Monomial, Vec<u32>)> = Vec::new();
     while let Some(id) = queue.pop() {
         let m = table.monomials[id as usize].clone();
         let Some(i) = reducer(&m) else { continue };
         let Some(mult) = m.quo(&basis[i].terms[0].0) else {
             continue;
         };
-        let mut columns = vec![id as usize];
+        let mut columns = vec![id];
         for (t, _) in &basis[i].terms[1..] {
             columns.push(fresh(table.intern_product(t, &mult), &mut queue));
         }
@@ -655,13 +678,10 @@ fn finish<F: F4Field>(
     }
     let mut ids: Vec<usize> = (0..table.monomials.len()).collect();
     ids.sort_by(|&a, &b| order.compare(&table.monomials[b], &table.monomials[a]));
-    let mut index = vec![0; ids.len()];
-    for (col, &id) in ids.iter().enumerate() {
-        index[id] = col;
-    }
+    let index = column_index(&ids);
     let columns: Vec<Monomial> = ids.iter().map(|&id| table.monomials[id].clone()).collect();
-    let row = |g: &Polynomial<F>, cols: &mut [usize], skip: usize| {
-        cols.iter_mut().for_each(|c| *c = index[*c]);
+    let row = |g: &Polynomial<F>, cols: &mut [u32], skip: usize| {
+        cols.iter_mut().for_each(|c| *c = index[*c as usize]);
         SparseRow {
             columns: cols.to_vec(),
             coefficients: g.terms[skip..].iter().map(|(_, c)| c.clone()).collect(),
@@ -690,6 +710,15 @@ fn finish<F: F4Field>(
     Ok(out)
 }
 
+// Column of each interned monomial, given the ids in column order.
+fn column_index(ids: &[usize]) -> Vec<u32> {
+    let mut index = vec![0; ids.len()];
+    for (col, &id) in ids.iter().enumerate() {
+        index[id] = col as u32;
+    }
+    index
+}
+
 fn decode<F: Field>(
     row: &SparseRow<F>,
     columns: &[Monomial],
@@ -700,7 +729,7 @@ fn decode<F: Field>(
         .columns
         .iter()
         .zip(&row.coefficients)
-        .map(|(c, v)| term(v.clone(), columns[*c].clone()))
+        .map(|(&c, v)| term(v.clone(), columns[c as usize].clone()))
         .collect();
     Polynomial {
         terms,
@@ -711,27 +740,27 @@ fn decode<F: Field>(
 
 /// Pivot rows indexed by leading column.
 trait Pivots<F>: Sync {
-    fn get(&self, col: usize) -> Option<&SparseRow<F>>;
+    fn get(&self, col: u32) -> Option<&SparseRow<F>>;
 }
 
 struct Table<'a, F> {
     rows: &'a [SparseRow<F>],
-    index: Vec<usize>,
+    index: Vec<u32>,
 }
 impl<'a, F> Table<'a, F> {
     fn new(rows: &'a [SparseRow<F>], ncols: usize) -> Self {
-        let mut index = vec![usize::MAX; ncols];
+        let mut index = vec![u32::MAX; ncols];
         for (k, row) in rows.iter().enumerate() {
             if let Some(&c) = row.columns.first() {
-                index[c] = k;
+                index[c as usize] = k as u32;
             }
         }
         Self { rows, index }
     }
 }
 impl<F: Sync> Pivots<F> for Table<'_, F> {
-    fn get(&self, col: usize) -> Option<&SparseRow<F>> {
-        self.rows.get(self.index[col])
+    fn get(&self, col: u32) -> Option<&SparseRow<F>> {
+        self.rows.get(self.index[col as usize] as usize)
     }
 }
 
@@ -741,10 +770,10 @@ struct Claimed<'a, F> {
     slots: Vec<OnceLock<(usize, SparseRow<F>)>>,
 }
 impl<F: Send + Sync> Pivots<F> for Claimed<'_, F> {
-    fn get(&self, col: usize) -> Option<&SparseRow<F>> {
+    fn get(&self, col: u32) -> Option<&SparseRow<F>> {
         self.known
             .get(col)
-            .or_else(|| self.slots[col].get().map(|(_, r)| r))
+            .or_else(|| self.slots[col as usize].get().map(|(_, r)| r))
     }
 }
 
@@ -778,25 +807,40 @@ impl<F: Field + Send + Sync> Kernel<F> for Generic {
     }
 }
 
+/// Stored residues in `[0, p)`: `u32` whenever the prime fits, halving row traffic.
+trait Residue: Copy + Send + Sync + Into<u64> {
+    fn new(v: u64) -> Self;
+}
+impl Residue for u32 {
+    fn new(v: u64) -> Self {
+        v as u32
+    }
+}
+impl Residue for u64 {
+    fn new(v: u64) -> Self {
+        v
+    }
+}
+
 struct Dense {
     p: u64,
     ncols: usize,
 }
-impl Kernel<u64> for Dense {
+impl<C: Residue> Kernel<C> for Dense {
     type Scratch = Vec<u64>;
     fn scratch(&self) -> Vec<u64> {
         vec![0; self.ncols]
     }
     fn reduce(
         &self,
-        row: &SparseRow<u64>,
-        pivots: &impl Pivots<u64>,
+        row: &SparseRow<C>,
+        pivots: &impl Pivots<C>,
         buf: &mut Vec<u64>,
-    ) -> SparseRow<u64> {
-        reduce_dense_u64(row, pivots, buf, self.p)
+    ) -> SparseRow<C> {
+        reduce_dense(row, pivots, buf, self.p)
     }
-    fn normalize(&self, row: &mut SparseRow<u64>) {
-        normalize_u64(row, self.p);
+    fn normalize(&self, row: &mut SparseRow<C>) {
+        normalize_residues(row, self.p);
     }
 }
 
@@ -843,7 +887,7 @@ fn echelon<F: Clone + Send + Sync, K: Kernel<F>>(
             let mut r = kernel.reduce(&rows[i], &claimed, s);
             while let Some(&lead) = r.columns.first() {
                 kernel.normalize(&mut r);
-                match claimed.slots[lead].set((i, r)) {
+                match claimed.slots[lead as usize].set((i, r)) {
                     Ok(()) => return,
                     Err((_, lost)) => r = kernel.reduce(&lost, &claimed, s),
                 }
@@ -886,28 +930,35 @@ fn echelonize_generic<F: Field + Send + Sync>(
     echelon(&Generic(ncols), pivots, rows, ncols).0
 }
 
+// Span of a row's columns, as buffer indices.
+fn span(columns: &[u32]) -> (usize, usize) {
+    match (columns.first(), columns.last()) {
+        (Some(&lo), Some(&hi)) => (lo as usize, hi as usize),
+        _ => (usize::MAX, 0),
+    }
+}
+
 fn reduce_generic<F: Field>(
     row: &SparseRow<F>,
     pivots: &impl Pivots<F>,
     ncols: usize,
 ) -> SparseRow<F> {
     let mut buf: Vec<F> = vec![F::zero(); ncols];
-    let (mut lo, mut hi) = (ncols, 0);
-    for (c, v) in row.columns.iter().zip(&row.coefficients) {
-        buf[*c] = v.clone();
-        lo = lo.min(*c);
-        hi = hi.max(*c);
+    for (&c, v) in row.columns.iter().zip(&row.coefficients) {
+        buf[c as usize] = v.clone();
     }
+    let (lo, mut hi) = span(&row.columns);
     let mut j = lo;
     while j <= hi && j < ncols {
         if !buf[j].is_zero()
-            && let Some(piv) = pivots.get(j)
+            && let Some(piv) = pivots.get(j as u32)
         {
             let c = std::mem::replace(&mut buf[j], F::zero());
-            for (pc, pv) in piv.columns.iter().zip(&piv.coefficients).skip(1) {
-                buf[*pc] = buf[*pc].clone() - c.clone() * pv.clone();
+            for (&pc, pv) in piv.columns.iter().zip(&piv.coefficients).skip(1) {
+                let pc = pc as usize;
+                buf[pc] = buf[pc].clone() - c.clone() * pv.clone();
             }
-            hi = hi.max(*piv.columns.last().unwrap_or(&0));
+            hi = hi.max(span(&piv.columns).1);
         }
         j += 1;
     }
@@ -921,7 +972,7 @@ fn compress<F: Field>(buf: Vec<F>, lo: usize) -> SparseRow<F> {
     };
     for (c, v) in buf.into_iter().enumerate().skip(lo) {
         if !v.is_zero() {
-            row.columns.push(c);
+            row.columns.push(c as u32);
             row.coefficients.push(v);
         }
     }
@@ -941,14 +992,25 @@ fn echelonize_modular_traced<F: ModularField + Send + Sync>(
     rows: &[SparseRow<F>],
     ncols: usize,
 ) -> (Vec<SparseRow<F>>, Vec<usize>) {
-    let Some((p, known, pending)) = to_u64(pivots, rows) else {
-        return (
+    match modulus(pivots, rows) {
+        None => (
             echelonize_generic(pivots, rows, ncols),
             (0..rows.len()).collect(),
-        );
-    };
+        ),
+        Some(p) if p <= u64::from(u32::MAX) => echelon_residues::<F, u32>(p, pivots, rows, ncols),
+        Some(p) => echelon_residues::<F, u64>(p, pivots, rows, ncols),
+    }
+}
+
+fn echelon_residues<F: ModularField + Send + Sync, C: Residue>(
+    p: u64,
+    pivots: &[SparseRow<F>],
+    rows: &[SparseRow<F>],
+    ncols: usize,
+) -> (Vec<SparseRow<F>>, Vec<usize>) {
+    let (known, pending) = residues::<F, C>(p, pivots, rows);
     let (reduced, live) = echelon(&Dense { p, ncols }, &known, &pending, ncols);
-    (from_u64(reduced, p), live)
+    (lift(reduced, p), live)
 }
 
 fn reduce_rows_modular<F: ModularField + Send + Sync>(
@@ -956,74 +1018,96 @@ fn reduce_rows_modular<F: ModularField + Send + Sync>(
     rows: &[SparseRow<F>],
     ncols: usize,
 ) -> Vec<SparseRow<F>> {
-    let Some((p, known, pending)) = to_u64(pivots, rows) else {
-        return rows.to_vec();
-    };
+    match modulus(pivots, rows) {
+        None => rows.to_vec(),
+        Some(p) if p <= u64::from(u32::MAX) => reduce_residues::<F, u32>(p, pivots, rows, ncols),
+        Some(p) => reduce_residues::<F, u64>(p, pivots, rows, ncols),
+    }
+}
+
+fn reduce_residues<F: ModularField + Send + Sync, C: Residue>(
+    p: u64,
+    pivots: &[SparseRow<F>],
+    rows: &[SparseRow<F>],
+    ncols: usize,
+) -> Vec<SparseRow<F>> {
+    let (known, pending) = residues::<F, C>(p, pivots, rows);
     let kernel = Dense { p, ncols };
     let table = Table::new(&known, ncols);
     let reduced = map_rows(
         &pending,
-        || kernel.scratch(),
+        || Kernel::<C>::scratch(&kernel),
         |r, s| kernel.reduce(r, &table, s),
     );
-    from_u64(reduced, p)
+    lift(reduced, p)
 }
 
-type Residues = (u64, Vec<SparseRow<u64>>, Vec<SparseRow<u64>>);
-
-// Residues of monic-normalized pivots and of rows. `None` when every coefficient is
-// zero and so no modulus can be recovered.
-fn to_u64<F: ModularField>(pivots: &[SparseRow<F>], rows: &[SparseRow<F>]) -> Option<Residues> {
-    let p = pivots
+// The modulus, or `None` when every coefficient is zero and so none can be recovered.
+fn modulus<F: ModularField>(pivots: &[SparseRow<F>], rows: &[SparseRow<F>]) -> Option<u64> {
+    pivots
         .iter()
         .chain(rows)
         .flat_map(|r| &r.coefficients)
         .map(ModularField::modulus)
-        .find(|&m| m != 0)?;
+        .find(|&m| m != 0)
+}
+
+type Residues<C> = (Vec<SparseRow<C>>, Vec<SparseRow<C>>);
+
+// Residues of monic-normalized pivots and of rows.
+fn residues<F: ModularField, C: Residue>(
+    p: u64,
+    pivots: &[SparseRow<F>],
+    rows: &[SparseRow<F>],
+) -> Residues<C> {
     let convert = |r: &SparseRow<F>| SparseRow {
         columns: r.columns.clone(),
-        coefficients: r.coefficients.iter().map(|v| v.residue_mod(p)).collect(),
+        coefficients: r
+            .coefficients
+            .iter()
+            .map(|v| C::new(v.residue_mod(p)))
+            .collect(),
     };
     let mut known: Vec<_> = pivots.iter().map(convert).collect();
     for r in &mut known {
-        normalize_u64(r, p);
+        normalize_residues(r, p);
     }
-    Some((p, known, rows.iter().map(convert).collect()))
+    (known, rows.iter().map(convert).collect())
 }
 
-fn from_u64<F: ModularField>(rows: Vec<SparseRow<u64>>, p: u64) -> Vec<SparseRow<F>> {
+fn lift<F: ModularField, C: Residue>(rows: Vec<SparseRow<C>>, p: u64) -> Vec<SparseRow<F>> {
     rows.into_iter()
         .map(|r| SparseRow {
             columns: r.columns,
             coefficients: r
                 .coefficients
                 .into_iter()
-                .map(|v| F::from_residue(v, p))
+                .map(|v| F::from_residue(v.into(), p))
                 .collect(),
         })
         .collect()
 }
 
-fn normalize_u64(r: &mut SparseRow<u64>, p: u64) {
+fn normalize_residues<C: Residue>(r: &mut SparseRow<C>, p: u64) {
     let Some(&lead) = r.coefficients.first() else {
         return;
     };
-    if lead == 1 {
+    if lead.into() == 1 {
         return;
     }
-    let inv = inv_mod(lead, p);
+    let inv = inv_mod(lead.into(), p);
     for v in &mut r.coefficients {
-        *v = mul_mod(*v, inv, p);
+        *v = C::new(mul_mod((*v).into(), inv, p));
     }
 }
 
 // Monagan-Pearce dense reduction: sums are reduced lazily while they fit in 64 bits.
-fn reduce_dense_u64(
-    row: &SparseRow<u64>,
-    pivots: &impl Pivots<u64>,
+fn reduce_dense<C: Residue>(
+    row: &SparseRow<C>,
+    pivots: &impl Pivots<C>,
     buf: &mut [u64],
     p: u64,
-) -> SparseRow<u64> {
+) -> SparseRow<C> {
     const LIMIT: u64 = 1 << 63;
     let small = p < (1 << 31);
     let ncols = buf.len();
@@ -1031,38 +1115,37 @@ fn reduce_dense_u64(
     // At most ncols triangular pivot eliminations can contribute to any cell.
     let deferred = small
         && (ncols as u128) * u128::from(p - 1).pow(2) + u128::from(p - 1) <= u128::from(u64::MAX);
-    let (mut lo, mut hi) = (ncols, 0);
-    for (c, v) in row.columns.iter().zip(&row.coefficients) {
-        buf[*c] = *v;
-        lo = lo.min(*c);
-        hi = hi.max(*c);
+    for (&c, &v) in row.columns.iter().zip(&row.coefficients) {
+        buf[c as usize] = v.into();
     }
+    let (lo, mut hi) = span(&row.columns);
     let mut j = lo;
     while j <= hi && j < ncols {
         if buf[j] == 0 {
             j += 1;
             continue;
         }
-        let Some(piv) = pivots.get(j) else {
+        let Some(piv) = pivots.get(j as u32) else {
             j += 1;
             continue;
         };
         let v = std::mem::take(&mut buf[j]) % p;
         if v != 0 {
             let c = p - v;
-            hi = hi.max(*piv.columns.last().unwrap_or(&0));
+            hi = hi.max(span(&piv.columns).1);
+            let tail = piv.columns[1..].iter().zip(&piv.coefficients[1..]);
             if deferred {
-                for (pc, pv) in piv.columns.iter().zip(&piv.coefficients).skip(1) {
-                    buf[*pc] += c * pv;
+                for (&pc, &pv) in tail {
+                    buf[pc as usize] += c * pv.into();
                 }
             } else if small {
-                for (pc, pv) in piv.columns.iter().zip(&piv.coefficients).skip(1) {
-                    let acc = buf[*pc] + c * pv;
-                    buf[*pc] = if acc >= LIMIT { acc % p } else { acc };
+                for (&pc, &pv) in tail {
+                    let acc = buf[pc as usize] + c * pv.into();
+                    buf[pc as usize] = if acc >= LIMIT { acc % p } else { acc };
                 }
             } else {
-                for (pc, pv) in piv.columns.iter().zip(&piv.coefficients).skip(1) {
-                    buf[*pc] = add_mod(buf[*pc], mul_mod(c, *pv, p), p);
+                for (&pc, &pv) in tail {
+                    buf[pc as usize] = add_mod(buf[pc as usize], mul_mod(c, pv.into(), p), p);
                 }
             }
         }
@@ -1080,8 +1163,8 @@ fn reduce_dense_u64(
     {
         let v = std::mem::take(cell) % p;
         if v != 0 {
-            out.columns.push(c);
-            out.coefficients.push(v);
+            out.columns.push(c as u32);
+            out.coefficients.push(C::new(v));
         }
     }
     out
@@ -1145,7 +1228,7 @@ mod trace_tests {
             let pivots: Vec<_> = (0..ncols)
                 .step_by(3)
                 .map(|i| {
-                    let columns: Vec<_> = (i..ncols).collect();
+                    let columns: Vec<_> = (i as u32..ncols as u32).collect();
                     let mut coefficients: Vec<_> = columns.iter().map(|_| next()).collect();
                     coefficients[0] = Zp::new(1, p);
                     SparseRow {
@@ -1156,7 +1239,7 @@ mod trace_tests {
                 .collect();
             let rows: Vec<_> = (0..96)
                 .map(|_| SparseRow {
-                    columns: (0..ncols).collect(),
+                    columns: (0..ncols as u32).collect(),
                     coefficients: (0..ncols).map(|_| next()).collect(),
                 })
                 .collect();
