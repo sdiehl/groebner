@@ -102,6 +102,18 @@ The classic papers on this topic:
 1. Faugère, J. C., Gianni, P., Lazard, D., & Mora, T. (1993). Efficient computation of zero-dimensional Gröbner bases by change of ordering. Journal of Symbolic Computation, 16(4), 329-344.
 1. Monagan, M., & Pearce, R. (2015). A compact parallel implementation of F4. In Proceedings of PASCO 2015 (pp. 95-100).
 
+## Benchmarks
+
+Reduced basis with `groebner_basis_f4` over GF(32003) in GRevLex, on Apple M5 silicon (10 cores).
+
+| System    | Basis size | Time   |
+| --------- | ---------: | -----: |
+| cyclic8   |        372 | 0.61 s |
+| katsura10 |        537 | 0.66 s |
+| eco12     |        743 | 1.22 s |
+| noon9     |       3682 | 7.22 s |
+| cyclic9   |       1344 | 54.1 s |
+
 ## License
 
 Released under the MIT License. See [LICENSE](LICENSE) for details.
