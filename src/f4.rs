@@ -588,9 +588,66 @@ fn survivors<T: PartialEq + Clone + Send + Sync>(
     kept
 }
 
+// Ids of packed monomials, probed linearly with each key beside its id, so a lookup
+// usually reads one cache line.
+#[derive(Default)]
+struct PackedIds {
+    slots: Vec<([u64; 2], u32)>,
+    len: usize,
+}
+impl PackedIds {
+    const EMPTY: u32 = u32::MAX;
+
+    fn start(&self, k: u128) -> usize {
+        let h = ((k >> 64) as u64 ^ (k as u64).rotate_left(29)).wrapping_mul(0x9e37_79b9_7f4a_7c15);
+        (h >> 32) as usize & (self.slots.len() - 1)
+    }
+
+    fn get(&self, k: u128) -> Option<u32> {
+        if self.slots.is_empty() {
+            return None;
+        }
+        let key = [k as u64, (k >> 64) as u64];
+        let mask = self.slots.len() - 1;
+        let mut i = self.start(k);
+        loop {
+            let (s, id) = self.slots[i];
+            if id == Self::EMPTY {
+                return None;
+            }
+            if s == key {
+                return Some(id);
+            }
+            i = (i + 1) & mask;
+        }
+    }
+
+    // `k` must be absent.
+    fn insert(&mut self, k: u128, id: u32) {
+        if 2 * (self.len + 1) > self.slots.len() {
+            let size = (2 * self.slots.len()).max(1024);
+            let old = std::mem::replace(&mut self.slots, vec![([0; 2], Self::EMPTY); size]);
+            for (s, id) in old.into_iter().filter(|&(_, id)| id != Self::EMPTY) {
+                self.place(u128::from(s[0]) | u128::from(s[1]) << 64, id);
+            }
+        }
+        self.place(k, id);
+        self.len += 1;
+    }
+
+    fn place(&mut self, k: u128, id: u32) {
+        let mask = self.slots.len() - 1;
+        let mut i = self.start(k);
+        while self.slots[i].1 != Self::EMPTY {
+            i = (i + 1) & mask;
+        }
+        self.slots[i] = ([k as u64, (k >> 64) as u64], id);
+    }
+}
+
 #[derive(Default)]
 struct MonomialTable {
-    packed: HashMap<u128, u32>,
+    packed: PackedIds,
     ids: HashMap<Key, u32>,
     monomials: Vec<Monomial>,
     scratch: Vec<u32>,
@@ -598,11 +655,11 @@ struct MonomialTable {
 impl MonomialTable {
     fn intern(&mut self, m: &Monomial) -> (u32, bool) {
         let found = match pack(m.exps()) {
-            Some(k) => self.packed.get(&k),
-            None => self.ids.get(m.exps()),
+            Some(k) => self.packed.get(k),
+            None => self.ids.get(m.exps()).copied(),
         };
         match found {
-            Some(&id) => (id, false),
+            Some(id) => (id, false),
             None => (self.insert(m.clone()), true),
         }
     }
@@ -615,7 +672,7 @@ impl MonomialTable {
 
     fn intern_product(&mut self, a: &Monomial, b: &Monomial) -> (u32, bool) {
         if let Some(k) = Self::product_key(a, b) {
-            if let Some(&id) = self.packed.get(&k) {
+            if let Some(id) = self.packed.get(k) {
                 return (id, false);
             }
             return (self.insert(a * b), true);
@@ -629,13 +686,26 @@ impl MonomialTable {
         }
     }
 
+    // Ids in column order, by descending monomial. Distinct monomials never tie.
+    fn columns(&self, order: &MonomialOrder) -> Vec<usize> {
+        let mut ids: Vec<usize> = (0..self.monomials.len()).collect();
+        let cmp = |&a: &usize, &b: &usize| order.compare(&self.monomials[b], &self.monomials[a]);
+        #[cfg(feature = "parallel")]
+        ids.par_sort_unstable_by(cmp);
+        #[cfg(not(feature = "parallel"))]
+        ids.sort_unstable_by(cmp);
+        ids
+    }
+
     #[allow(clippy::expect_used)] // More than 2^32 matrix columns cannot fit in practical memory.
     fn insert(&mut self, m: Monomial) -> u32 {
         let id = u32::try_from(self.monomials.len()).expect("F4 matrix exceeds u32 columns");
         match pack(m.exps()) {
             Some(k) => self.packed.insert(k, id),
-            None => self.ids.insert(Key(m.clone()), id),
-        };
+            None => {
+                self.ids.insert(Key(m.clone()), id);
+            }
+        }
         self.monomials.push(m);
         id
     }
@@ -943,25 +1013,27 @@ impl<F: F4Field> State<F> {
                 |(i, mult, _), seen| {
                     let mut column = |k: Option<u128>| match k.filter(|k| k & LANES == 0) {
                         None => u32::MAX,
-                        Some(k) => match table.packed.get(&k) {
-                            Some(&id) => id,
+                        Some(k) => match table.packed.get(k) {
+                            Some(id) => id,
                             None => *seen.entry(k).or_insert_with(|| fresh.intern(k)),
                         },
                     };
                     let g = &self.basis[*i];
-                    match (&g.keys, pack(mult.exps())) {
+                    let columns: Vec<u32> = match (&g.keys, pack(mult.exps())) {
                         (Some(keys), Some(m)) => keys.iter().map(|k| column(Some(k + m))).collect(),
                         _ => (0..g.len())
                             .map(|k| column(MonomialTable::product_key(&g.term(k, nvars), mult)))
-                            .collect::<Vec<_>>(),
-                    }
+                            .collect(),
+                    };
+                    let unpacked = columns.contains(&u32::MAX);
+                    (columns, unpacked)
                 },
             );
             let mut fresh = fresh.drain(&mut table, nvars);
-            for ((i, mult, pivot), mut columns) in level.into_iter().zip(found) {
+            for ((i, mult, pivot), (mut columns, unpacked)) in level.into_iter().zip(found) {
                 // Products too large to pack are interned here.
                 let g = &self.basis[i];
-                for (k, c) in columns.iter_mut().enumerate() {
+                for (k, c) in columns.iter_mut().enumerate().filter(|_| unpacked) {
                     if *c == u32::MAX {
                         let (id, new) = table.intern_product(&g.term(k, nvars), &mult);
                         if new {
@@ -997,18 +1069,19 @@ impl<F: F4Field> State<F> {
             );
             level = found.into_iter().flatten().collect();
         }
-        let mut ids: Vec<usize> = (0..table.monomials.len()).collect();
-        ids.sort_by(|&a, &b| order.compare(&table.monomials[b], &table.monomials[a]));
+        let ids = table.columns(order);
         let index = column_index(&ids);
         let columns = ids
             .into_iter()
             .map(|id| table.monomials[id].clone())
             .collect();
-        for row in pivots.iter_mut().chain(&mut rows) {
+        let reindex = |row: &mut PlannedRow| {
             for c in &mut row.columns {
                 *c = index[*c as usize];
             }
-        }
+        };
+        for_rows_mut(&mut pivots, reindex);
+        for_rows_mut(&mut rows, reindex);
         pivots.sort_by_key(|r| r.columns[0]);
         MatrixPlan {
             columns,
@@ -1080,8 +1153,7 @@ fn finish<F: F4Field>(
         }
         pivots.push((i, columns));
     }
-    let mut ids: Vec<usize> = (0..table.monomials.len()).collect();
-    ids.sort_by(|&a, &b| order.compare(&table.monomials[b], &table.monomials[a]));
+    let ids = table.columns(&order);
     let index = column_index(&ids);
     let columns: Vec<Monomial> = ids.iter().map(|&id| table.monomials[id].clone()).collect();
     let reindex = |mut cols: Vec<u32>| {
@@ -1296,6 +1368,16 @@ fn map_rows<T: Sync, R: Send, S>(
         return rows.par_chunks(32).flat_map_iter(block).collect();
     }
     block(rows)
+}
+
+fn for_rows_mut<T: Send>(rows: &mut [T], f: impl Fn(&mut T) + Sync) {
+    #[cfg(feature = "parallel")]
+    if rows.len() >= 64 {
+        return rows
+            .par_chunks_mut(32)
+            .for_each(|block| block.iter_mut().for_each(&f));
+    }
+    rows.iter_mut().for_each(f);
 }
 
 // `map_rows` for cheap per-row work, which only pays to split when there is a lot.

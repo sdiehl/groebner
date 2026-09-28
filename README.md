@@ -101,7 +101,7 @@ Reduced basis with `groebner_basis_f4` over GF(32003) in GRevLex, on Apple M5 si
 | noon9     |       3682 | 1.80 s |
 | noon10    |      10273 | 12.6 s |
 | reimer7   |        227 | 0.14 s |
-| reimer8   |        612 | 2.93 s |
+| reimer8   |        612 | 2.65 s |
 
 Inputs are in [`benches/data`](benches/data).
 

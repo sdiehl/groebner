@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Intern packed F4 monomials in an open addressing table, and renumber and sort
+  preprocessing columns in parallel. reimer8 runs about a tenth faster.
 - Store F4 basis elements as coefficients and packed term keys, so a preprocessing
   product is one add of the term key and the packed multiplier. Monomials are kept
   only for terms that do not pack or when a trace records the support.
