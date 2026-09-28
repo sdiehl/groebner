@@ -253,6 +253,7 @@ fn compute_on<F: F4Field>(
         pairs: Vec::new(),
         masks: Vec::new(),
         keys: Vec::new(),
+        term_keys: Vec::new(),
     };
     for poly in input {
         state.update(poly);
@@ -384,6 +385,8 @@ struct State<F> {
     masks: Vec<u64>,
     // Packed leading monomials, when they fit.
     keys: Vec<Option<u128>>,
+    // Packed monomials of every term, when all fit.
+    term_keys: Vec<Option<Box<[u128]>>>,
 }
 
 struct Matrix<F> {
@@ -678,6 +681,8 @@ impl<F: F4Field> State<F> {
         let mask_h = divisibility_mask(&lm_h);
         self.masks.push(mask_h);
         self.keys.push(pack(lm_h.exps()));
+        self.term_keys
+            .push(h.terms.iter().map(|(m, _)| pack(m.exps())).collect());
         self.basis.push(h);
         self.active.push(true);
         let kept = self.new_pairs(t);
@@ -816,20 +821,21 @@ impl<F: F4Field> State<F> {
                 // Each worker caches the fresh ids it has seen, sparing the shard locks.
                 HashMap::<u128, u32>::default,
                 |(i, mult, _), seen| {
-                    let mut column = |(m, _): &(Monomial, F)| {
-                        let Some(k) = MonomialTable::product_key(m, mult) else {
-                            return u32::MAX;
-                        };
-                        match table.packed.get(&k) {
+                    let mut column = |k: Option<u128>| match k.filter(|k| k & LANES == 0) {
+                        None => u32::MAX,
+                        Some(k) => match table.packed.get(&k) {
                             Some(&id) => id,
                             None => *seen.entry(k).or_insert_with(|| fresh.intern(k)),
-                        }
+                        },
                     };
-                    self.basis[*i]
-                        .terms
-                        .iter()
-                        .map(&mut column)
-                        .collect::<Vec<_>>()
+                    match (&self.term_keys[*i], pack(mult.exps())) {
+                        (Some(keys), Some(m)) => keys.iter().map(|k| column(Some(k + m))).collect(),
+                        _ => self.basis[*i]
+                            .terms
+                            .iter()
+                            .map(|(t, _)| column(MonomialTable::product_key(t, mult)))
+                            .collect::<Vec<_>>(),
+                    }
                 },
             );
             let mut fresh = fresh.drain(&mut table, nvars);

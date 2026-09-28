@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Keep packed monomial keys for every F4 basis term, so a preprocessing product is
+  one add of the term key and the packed multiplier.
 - Prune F4 critical pairs with packed lcm keys, testing each new pair against
   lower degree lcms in parallel. The kept pairs match the sequential criterion.
 - Search reducers for new preprocessing monomials in parallel, testing divisibility

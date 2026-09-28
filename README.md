@@ -86,22 +86,22 @@ Reduced basis with `groebner_basis_f4` over GF(32003) in GRevLex, on Apple M5 si
 
 | System    | Basis size |   Time |
 | --------- | ---------: | -----: |
-| chandra12 |       2048 | 0.50 s |
-| chandra13 |       4096 | 2.02 s |
-| cyclic8   |        372 | 0.19 s |
+| chandra12 |       2048 | 0.49 s |
+| chandra13 |       4096 | 1.98 s |
+| cyclic8   |        372 | 0.18 s |
 | cyclic9   |       1344 | 8.67 s |
-| eco12     |        743 | 0.36 s |
-| eco13     |       1465 | 1.41 s |
+| eco12     |        743 | 0.30 s |
+| eco13     |       1465 | 1.19 s |
 | eco14     |       2852 | 8.45 s |
-| henrion7  |        415 | 0.40 s |
+| henrion7  |        415 | 0.35 s |
 | henrion8  |       2344 | 58.2 s |
-| katsura11 |       1050 | 0.75 s |
-| katsura12 |       2091 | 4.08 s |
+| katsura11 |       1050 | 0.64 s |
+| katsura12 |       2091 | 4.05 s |
 | katsura13 |       4140 | 26.7 s |
 | noon9     |       3682 | 1.88 s |
-| noon10    |      10273 | 13.8 s |
-| reimer7   |        227 | 0.16 s |
-| reimer8   |        612 | 3.61 s |
+| noon10    |      10273 | 13.2 s |
+| reimer7   |        227 | 0.14 s |
+| reimer8   |        612 | 2.97 s |
 
 Inputs are in [`benches/data`](benches/data).
 
