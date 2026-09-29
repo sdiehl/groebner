@@ -557,6 +557,12 @@ impl Kernel<Lanes> for LaneKernel {
             }
         })
     }
+    // A replay round has few rows, each costly, so a block per worker would leave most
+    // of the pool idle.
+    #[cfg(feature = "parallel")]
+    fn block(&self, n: usize) -> usize {
+        n.div_ceil(4 * rayon::current_num_threads()).clamp(1, 32)
+    }
     fn normalize(&self, row: &mut SparseRow<Lanes>) {
         let lead = row.coefficients[0];
         if lead == [1; PRIMES] {
@@ -1601,8 +1607,9 @@ impl FinishPlan {
                 coefficients: cs[1..].to_vec(),
             })
             .collect();
-        let reduced = map_rows(
+        let reduced = map_blocks(
             &tails,
+            kernel.block(tails.len()),
             || Kernel::<Lanes>::scratch(&kernel),
             |r, s| kernel.reduce(r, &table, s),
         );
@@ -1737,6 +1744,10 @@ trait Kernel<F>: Sync {
         scratch: &mut Self::Scratch,
     ) -> SparseRow<F>;
     fn normalize(&self, row: &mut SparseRow<F>);
+    // Rows per parallel block when mapping `n` rows.
+    fn block(&self, _n: usize) -> usize {
+        32
+    }
 }
 
 struct Generic(usize);
@@ -1804,14 +1815,26 @@ fn map_rows<T: Sync, R: Send, S>(
     scratch: impl Fn() -> S + Sync,
     f: impl Fn(&T, &mut S) -> R + Sync,
 ) -> Vec<R> {
+    map_blocks(rows, 32, scratch, f)
+}
+
+// `map_rows` in blocks of `size` rows, split only when there are at least two.
+fn map_blocks<T: Sync, R: Send, S>(
+    rows: &[T],
+    size: usize,
+    scratch: impl Fn() -> S + Sync,
+    f: impl Fn(&T, &mut S) -> R + Sync,
+) -> Vec<R> {
     let block = |block: &[T]| {
         let mut s = scratch();
         block.iter().map(|r| f(r, &mut s)).collect::<Vec<_>>()
     };
     #[cfg(feature = "parallel")]
-    if rows.len() >= 64 {
-        return rows.par_chunks(32).flat_map_iter(block).collect();
+    if rows.len() >= 2 * size {
+        return rows.par_chunks(size).flat_map_iter(block).collect();
     }
+    #[cfg(not(feature = "parallel"))]
+    let _ = size;
     block(rows)
 }
 
@@ -1848,8 +1871,9 @@ fn echelon<F: Clone + Send + Sync, K: Kernel<F>>(
         slots: (0..ncols).map(|_| OnceLock::new()).collect(),
     };
     let order = sorted(rows);
-    map_rows(
+    map_blocks(
         &order,
+        kernel.block(order.len()),
         || kernel.scratch(),
         |&i, s| {
             let r = kernel.reduce(&rows[i], &claimed, s);
@@ -1900,8 +1924,9 @@ fn back_substitute<F: Clone + Send + Sync, K: Kernel<F>>(
     // The column sweep clears every pivot column it meets, fill-in included, so each
     // tail reduces independently against the unreduced echelon form.
     let table = Table::new(new.iter().map(SparseRow::row), ncols);
-    let reduced = map_rows(
+    let reduced = map_blocks(
         &new,
+        kernel.block(new.len()),
         || kernel.scratch(),
         |r, s| {
             if !r.columns[1..].iter().any(|&c| table.get(c).is_some()) {

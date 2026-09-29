@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Split lane replay rows finely so small rounds use every thread.
 - Replay the final interreduction four primes at a time.
 - Reconstruct rational coefficients with Lehmer gcd and half gcd.
 - Validate rational candidates against a held-out replayed image.
