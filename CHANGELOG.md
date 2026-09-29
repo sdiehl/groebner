@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Replay the final interreduction four primes at a time.
 - Reconstruct rational coefficients with Lehmer gcd and half gcd.
 - Validate rational candidates against a held-out replayed image.
 - Reduce rational candidates modulo check primes in parallel.
