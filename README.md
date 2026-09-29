@@ -36,22 +36,22 @@ Reduced basis with `groebner_basis_f4` over GF(32003) in GRevLex, on Apple M5 si
 
 | System    | Basis size |   Time |
 | --------- | ---------: | -----: |
-| chandra12 |       2048 | 0.45 s |
-| chandra13 |       4096 | 1.82 s |
+| chandra12 |       2048 | 0.42 s |
+| chandra13 |       4096 | 1.57 s |
 | cyclic8   |        372 | 0.17 s |
-| cyclic9   |       1344 | 8.47 s |
-| eco12     |        743 | 0.29 s |
-| eco13     |       1465 | 1.13 s |
-| eco14     |       2852 | 7.01 s |
+| cyclic9   |       1344 | 6.05 s |
+| eco12     |        743 | 0.26 s |
+| eco13     |       1465 | 0.90 s |
+| eco14     |       2852 | 4.91 s |
 | henrion7  |        415 | 0.32 s |
-| henrion8  |       2344 | 38.9 s |
-| katsura11 |       1050 | 0.62 s |
-| katsura12 |       2091 | 3.50 s |
+| henrion8  |       2344 | 30.6 s |
+| katsura11 |       1050 | 0.61 s |
+| katsura12 |       2091 | 3.45 s |
 | katsura13 |       4140 | 15.8 s |
-| noon9     |       3682 | 1.80 s |
-| noon10    |      10273 | 12.6 s |
-| reimer7   |        227 | 0.14 s |
-| reimer8   |        612 | 2.65 s |
+| noon9     |       3682 | 1.77 s |
+| noon10    |      10273 | 10.3 s |
+| reimer7   |        227 | 0.13 s |
+| reimer8   |        612 | 1.68 s |
 
 Over the rationals with `BigRational` coefficients, same settings. Rows marked * use `RationalOptions { batch: Some(40) }`.
 

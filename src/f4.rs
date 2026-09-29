@@ -916,9 +916,11 @@ struct PackedIds {
 impl PackedIds {
     const EMPTY: u32 = u32::MAX;
 
+    // The top bits of the product depend on every key bit, so nearby monomials spread.
     fn start(&self, k: u128) -> usize {
-        let h = ((k >> 64) as u64 ^ (k as u64).rotate_left(29)).wrapping_mul(0x9e37_79b9_7f4a_7c15);
-        (h >> 32) as usize & (self.slots.len() - 1)
+        let h = ((k as u64).wrapping_mul(0x9e37_79b9_7f4a_7c15) ^ (k >> 64) as u64)
+            .wrapping_mul(0xbf58_476d_1ce4_e5b9);
+        (h >> (self.slots.len().leading_zeros() + 1)) as usize
     }
 
     fn get(&self, k: u128) -> Option<u32> {

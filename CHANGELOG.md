@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Hash packed monomials from the top product bits to avoid probe clustering.
 - Sweep four random combinations per pass in the Monte Carlo echelon.
 - Balance symbolic preprocessing levels by row length across threads.
 - Add RationalOptions to fix the rational replay batch width.
