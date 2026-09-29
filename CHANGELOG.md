@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Add RationalOptions to fix the rational replay batch width.
 - Abort failed rational reconstructions early and gcd small operands in place.
 - Split lane replay rows finely so small rounds use every thread.
 - Replay the final interreduction four primes at a time.

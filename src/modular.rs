@@ -22,11 +22,37 @@ pub fn groebner_basis_f4_rational(
     polynomials: Vec<Polynomial<BigRational>>,
     certify: bool,
 ) -> Result<Vec<Polynomial<BigRational>>, GroebnerError> {
+    groebner_basis_f4_rational_with(polynomials, certify, RationalOptions::default())
+}
+
+/// Tuning for [`groebner_basis_f4_rational_with`].
+#[derive(Clone, Copy, Debug, Default)]
+pub struct RationalOptions {
+    /// Primes replayed per round after the first image. By default rounds start at
+    /// eight primes and grow by about 12.5%, which suits systems that need few primes
+    /// or have large matrices. Small systems with tall coefficients finish sooner
+    /// with a round wide enough to fill the thread pool, such as four per thread.
+    pub batch: Option<usize>,
+}
+
+/// [`groebner_basis_f4_rational`] with an explicit replay schedule.
+pub fn groebner_basis_f4_rational_with(
+    polynomials: Vec<Polynomial<BigRational>>,
+    certify: bool,
+    options: RationalOptions,
+) -> Result<Vec<Polynomial<BigRational>>, GroebnerError> {
     let input = crate::groebner::prepare_input(polynomials)?;
     let primitive: Vec<_> = input.iter().map(Polynomial::primitive).collect();
     // 23-bit primes allow fully deferred u64 accumulation for matrices with up to
     // 2^18 columns, trading more CRT images for much cheaper row elimination.
-    let basis = reconstruct(&primitive, Primes::below(1 << 23), |_, _| {})?;
+    let basis = reconstruct_inner(
+        &primitive,
+        Primes::below(1 << 23),
+        options.batch,
+        |_, _| {},
+        #[cfg(test)]
+        &mut ReconstructionStats::default(),
+    )?;
     if certify && !certify_basis(&input, &basis)? {
         return Err(GroebnerError::ReconstructionFailed);
     }
@@ -356,6 +382,7 @@ fn add_image(
     }
 }
 
+#[cfg(test)]
 fn reconstruct(
     input: &[Polynomial<BigRational>],
     primes: impl IntoIterator<Item = u64>,
@@ -364,15 +391,31 @@ fn reconstruct(
     reconstruct_inner(
         input,
         primes,
+        None,
         inspect_image,
         #[cfg(test)]
         &mut ReconstructionStats::default(),
     )
 }
 
+// After the learned image, replay whole lane chunks and grow by about 12.5%, rather
+// than doubling the work near completion, unless the caller fixed the width.
+fn schedule(count: usize, batch: Option<usize>) -> usize {
+    match (count, batch) {
+        (0, _) => 1,
+        (_, Some(batch)) => batch.max(1),
+        _ => count
+            .div_ceil(8)
+            .max(2 * PRIMES)
+            .next_multiple_of(PRIMES)
+            .min(32),
+    }
+}
+
 fn reconstruct_inner(
     input: &[Polynomial<BigRational>],
     primes: impl IntoIterator<Item = u64>,
+    batch: Option<usize>,
     mut inspect_image: impl FnMut(u64, &mut Vec<Polynomial<Fp>>),
     #[cfg(test)] stats: &mut ReconstructionStats,
 ) -> Result<Vec<Polynomial<BigRational>>, GroebnerError> {
@@ -392,18 +435,7 @@ fn reconstruct_inner(
             .map(|g| g.primary.count())
             .max()
             .unwrap_or(0);
-        // After the learned image, replay whole lane chunks and grow by about 12.5%,
-        // rather than doubling the work near completion.
-        let batch = if count == 0 {
-            1
-        } else {
-            count
-                .div_ceil(8)
-                .max(2 * PRIMES)
-                .next_multiple_of(PRIMES)
-                .min(32)
-        };
-        let ps: Vec<_> = primes.by_ref().take(batch).collect();
+        let ps: Vec<_> = primes.by_ref().take(schedule(count, batch)).collect();
         if ps.is_empty() {
             return Err(GroebnerError::ReconstructionFailed);
         }
@@ -694,6 +726,11 @@ mod tests {
         for text in ["2/3*x^2 - 2/3*y; -3/5*x*y + 3/5", "x^2; y", "x; x - 1"] {
             let polys = input(text);
             let basis = groebner_basis_f4_rational(polys.clone(), true).unwrap();
+            for batch in [1, 5, 40] {
+                let options = RationalOptions { batch: Some(batch) };
+                let wide = groebner_basis_f4_rational_with(polys.clone(), true, options);
+                assert_eq!(wide.unwrap(), basis);
+            }
             assert_eq!(basis, groebner_basis_f4_direct(polys, true).unwrap());
         }
     }
@@ -751,7 +788,7 @@ mod tests {
         let mut polys = input("x + y");
         polys[0].terms[1].1 = BigRational::from_integer(num_bigint::BigInt::from(1u32) << 900);
         let mut stats = ReconstructionStats::default();
-        let result = reconstruct_inner(&polys, Primes::below(1 << 31), |_, _| {}, &mut stats)
+        let result = reconstruct_inner(&polys, Primes::below(1 << 31), None, |_, _| {}, &mut stats)
             .expect("reconstruction");
         assert_eq!(result, polys);
         assert!(
@@ -769,6 +806,7 @@ mod tests {
         let result = reconstruct_inner(
             &polys,
             Primes::below(1 << 31),
+            None,
             |_, basis| {
                 images += 1;
                 if images == 1 {
@@ -788,7 +826,8 @@ mod tests {
         let polys = input("x + y; x - y");
         let mut stats = ReconstructionStats::default();
         let primes = [2, 3, 5, 7].into_iter().chain(Primes::below(100000));
-        let result = reconstruct_inner(&polys, primes, |_, _| {}, &mut stats).expect("recovery");
+        let result =
+            reconstruct_inner(&polys, primes, None, |_, _| {}, &mut stats).expect("recovery");
         assert_eq!(
             result,
             groebner_basis_f4_direct(polys, true).expect("direct")

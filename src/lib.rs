@@ -50,7 +50,7 @@ struct ReadmeDoctests;
 pub mod f4;
 mod lehmer;
 pub mod modular;
-pub use modular::groebner_basis_f4_rational;
+pub use modular::{RationalOptions, groebner_basis_f4_rational, groebner_basis_f4_rational_with};
 pub mod fglm;
 pub use polycore::Modular as ModularField;
 pub use polycore::{Field, Fp, Gf, Modular};
