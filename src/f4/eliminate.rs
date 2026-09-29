@@ -346,14 +346,9 @@ fn echelon_random<C: Residue>(
             while found < block.len() && run < zeros {
                 let (mut lo, mut hi) = (usize::MAX, 0);
                 for &i in *block {
-                    let m: [u64; COMBOS] = std::array::from_fn(|_| rng.nonzero(p));
+                    let m = std::array::from_fn(|_| rng.nonzero(p) as u32);
                     let (cols, coefs) = (&rows[i].columns, &rows[i].coefficients);
-                    for (&c, &v) in cols.iter().zip(coefs) {
-                        let cell = &mut lanes[c as usize];
-                        for l in 0..COMBOS {
-                            cell[l] += m[l] * v.into();
-                        }
-                    }
+                    accumulate_combos(lanes, cols, coefs, m);
                     let (l, h) = span(cols);
                     (lo, hi) = (lo.min(l), hi.max(h));
                 }
@@ -573,20 +568,62 @@ fn sweep_combos<C: Residue>(
             continue;
         };
         if v != [0; COMBOS] {
-            let c = v.map(|x| (p - x) % p);
+            let c = v.map(|x| ((p - x) % p) as u32);
             hi = hi.max(span(piv.columns).1);
-            for (&pc, &pv) in piv.columns[1..].iter().zip(&piv.coefficients[1..]) {
-                let cell = &mut buf[pc as usize];
-                let pv: u64 = pv.into();
-                for l in 0..COMBOS {
-                    cell[l] += c[l] * pv;
-                }
-            }
+            accumulate_combos(buf, &piv.columns[1..], &piv.coefficients[1..], c);
         }
         j += 1;
     }
     out
 }
+
+// `buf[column] += c * coefficient` in every lane, without reduction, for `p < 2^31`.
+#[cfg(not(target_arch = "aarch64"))]
+fn accumulate_combos<C: Residue>(
+    buf: &mut [[u64; COMBOS]],
+    columns: &[u32],
+    coefficients: &[C],
+    c: [u32; COMBOS],
+) {
+    for (&pc, &pv) in columns.iter().zip(coefficients) {
+        let cell = &mut buf[pc as usize];
+        let pv: u64 = pv.into();
+        for l in 0..COMBOS {
+            cell[l] += u64::from(c[l]) * pv;
+        }
+    }
+}
+
+// Two widening multiply-accumulates by the scalar coefficient cover the four lanes.
+#[cfg(target_arch = "aarch64")]
+#[allow(unsafe_code)]
+fn accumulate_combos<C: Residue>(
+    buf: &mut [[u64; COMBOS]],
+    columns: &[u32],
+    coefficients: &[C],
+    c: [u32; COMBOS],
+) {
+    use std::arch::aarch64::{
+        vget_low_u32, vld1q_u32, vld1q_u64, vmlal_high_n_u32, vmlal_n_u32, vst1q_u64,
+    };
+    const { assert!(COMBOS == 4) };
+    // SAFETY: NEON is part of the aarch64 baseline, and each pointer addresses a whole
+    // array of four `u32` or four `u64` lanes.
+    unsafe {
+        let m = vld1q_u32(c.as_ptr());
+        for (&pc, &pv) in columns.iter().zip(coefficients) {
+            let cell = buf[pc as usize].as_mut_ptr();
+            let pv = pv.into() as u32;
+            let lo = vmlal_n_u32(vld1q_u64(cell), vget_low_u32(m), pv);
+            let hi = vmlal_high_n_u32(vld1q_u64(cell.add(2)), m, pv);
+            vst1q_u64(cell, lo);
+            vst1q_u64(cell.add(2), hi);
+        }
+    }
+}
+
+// Primes below which a cell in [0, 4p) fits in 64 bits, for Shoup reduction in `sweep`.
+const SHOUP_LIMIT: u64 = 1 << 62;
 
 // Eliminate pivot columns from `buf[lo..=hi]` and drain it into a row. Each cell holds
 // a residue plus at most `terms` unreduced products of two residues.
@@ -655,6 +692,18 @@ fn sweep<C: Residue>(
                 for (&pc, &pv) in kr.iter().zip(vr) {
                     update(&mut buf[pc as usize], pv);
                 }
+            } else if p < SHOUP_LIMIT {
+                // Shoup's precomputed quotient makes `c * v - q * p` exact in [0, 2p)
+                // without a division per cell, and cells stay below 2p until read.
+                let cq = ((u128::from(c) << 64) / u128::from(p)) as u64;
+                let twice = 2 * p;
+                for (&pc, &pv) in tail {
+                    let v: u64 = pv.into();
+                    let q = ((u128::from(cq) * u128::from(v)) >> 64) as u64;
+                    let cell = &mut buf[pc as usize];
+                    let acc = *cell + c.wrapping_mul(v).wrapping_sub(q.wrapping_mul(p));
+                    *cell = if acc >= twice { acc - twice } else { acc };
+                }
             } else {
                 for (&pc, &pv) in tail {
                     buf[pc as usize] = add_mod(buf[pc as usize], mul_mod(c, pv.into(), p), p);
@@ -690,7 +739,14 @@ mod tests {
 
     #[test]
     fn modular_row_blocks_match_generic_elimination_at_word_boundaries() {
-        for p in [2, 32003, 2_147_483_647, 18_446_744_073_709_551_557] {
+        for p in [
+            2,
+            32003,
+            2_147_483_647,
+            2_147_483_659,
+            4_611_686_018_427_387_847,
+            18_446_744_073_709_551_557,
+        ] {
             let ncols = 80;
             let mut seed = 42u64;
             let mut next = || {
