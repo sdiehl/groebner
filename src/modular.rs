@@ -1,5 +1,5 @@
 //! Multi-modular reconstruction of a reduced rational F4 basis.
-use crate::f4::{F4Trace, PRIMES, learn};
+use crate::f4::{F4Trace, PRIMES, groebner_basis_f4_direct, learn};
 use crate::{Fp, GroebnerError, Monomial, Polynomial};
 use num_integer::Integer;
 use num_rational::BigRational;
@@ -90,92 +90,125 @@ impl TraceState {
     }
 }
 
+/// Coefficients in Garner's mixed radix form, one row of digits per prime:
+/// `x = d[0] + p[0] * (d[1] + p[1] * (d[2] + ...))`. Adding a prime only takes
+/// machine word arithmetic; big integers appear when reconstructing.
+#[derive(Default)]
 struct Accumulator {
-    residues: Vec<num_bigint::BigInt>,
-    modulus: num_bigint::BigInt,
-    count: usize,
-}
-impl Default for Accumulator {
-    fn default() -> Self {
-        Self {
-            residues: Vec::new(),
-            modulus: 1u32.into(),
-            count: 0,
-        }
-    }
-}
-// `x mod p` for `x >= 0`, by Horner over the limbs without allocating.
-fn residue(x: &num_bigint::BigInt, p: u64) -> u64 {
-    let p = u128::from(p);
-    x.magnitude()
-        .iter_u64_digits()
-        .rev()
-        .fold(0, |r, d| ((u128::from(r) << 64 | u128::from(d)) % p) as u64)
+    primes: Vec<u64>,
+    digits: Vec<Vec<u32>>,
 }
 
 impl Accumulator {
+    fn count(&self) -> usize {
+        self.primes.len()
+    }
+
     fn add(&mut self, p: u64, values: &[u64]) {
-        if self.count == 0 {
-            self.residues = values.iter().copied().map(Into::into).collect();
-            self.modulus = p.into();
-        } else {
-            let m = &self.modulus;
-            let minv = modp::inv(residue(m, p), p);
-            let step = |(x, &v): (&mut num_bigint::BigInt, &u64)| {
-                let t = modp::mul(modp::sub(v, residue(x, p), p), minv, p);
-                if t != 0 {
-                    *x += m * t;
-                }
-            };
-            #[cfg(feature = "parallel")]
-            if self.residues.len() >= 1024 {
-                self.residues.par_iter_mut().zip(values).for_each(step);
-            } else {
-                self.residues.iter_mut().zip(values).for_each(step);
-            }
-            #[cfg(not(feature = "parallel"))]
-            self.residues.iter_mut().zip(values).for_each(step);
-            self.modulus *= p;
+        assert!(p < 1 << 32, "mixed radix digits are u32");
+        // `x mod p` is the dot product of the digits with these weights.
+        let mut weights = Vec::with_capacity(self.primes.len());
+        let mut m = 1;
+        for &q in &self.primes {
+            weights.push(m as u32);
+            m = modp::mul(m, q % p, p);
         }
-        self.count += 1;
+        let minv = modp::inv(m, p);
+        let max = self.primes.iter().copied().fold(p, u64::max);
+        let lazy = u128::from(max).pow(2) * (self.primes.len() as u128 + 1) < 1 << 64;
+        let digits = &self.digits;
+        let fill = |(c, out): (usize, &mut [u32])| {
+            let span = c * CHUNK..c * CHUNK + out.len();
+            let mut acc = vec![0u64; out.len()];
+            for (row, &w) in digits.iter().zip(&weights) {
+                let row = &row[span.clone()];
+                if lazy {
+                    for (a, &t) in acc.iter_mut().zip(row) {
+                        *a += u64::from(t) * u64::from(w);
+                    }
+                } else {
+                    for (a, &t) in acc.iter_mut().zip(row) {
+                        *a = modp::add(*a, modp::mul(u64::from(t), u64::from(w), p), p);
+                    }
+                }
+            }
+            for ((o, &v), a) in out.iter_mut().zip(&values[span]).zip(acc) {
+                *o = modp::mul(modp::sub(v, a % p, p), minv, p) as u32;
+            }
+        };
+        const CHUNK: usize = 4096;
+        let mut next = vec![0u32; values.len()];
+        #[cfg(feature = "parallel")]
+        next.par_chunks_mut(CHUNK).enumerate().for_each(fill);
+        #[cfg(not(feature = "parallel"))]
+        next.chunks_mut(CHUNK).enumerate().for_each(fill);
+        self.digits.push(next);
+        self.primes.push(p);
     }
 
     fn remap(&mut self, positions: &[Option<usize>]) {
-        if self.count != 0 {
-            self.residues = positions
-                .iter()
-                .map(|i| i.map_or_else(|| 0u32.into(), |i| self.residues[i].clone()))
-                .collect();
+        for row in &mut self.digits {
+            *row = positions.iter().map(|i| i.map_or(0, |i| row[i])).collect();
         }
     }
 
     fn reconstruct(&self) -> Option<Vec<BigRational>> {
-        if self.count == 0 {
+        if self.primes.is_empty() {
             return None;
         }
+        // Consecutive primes whose product fits a word form one big radix digit.
+        let mut radices: Vec<(u64, std::ops::Range<usize>)> = Vec::new();
+        for (j, &p) in self.primes.iter().enumerate() {
+            match radices.last_mut() {
+                Some((r, js)) if r.checked_mul(p).is_some() => {
+                    *r *= p;
+                    js.end = j + 1;
+                }
+                _ => radices.push((p, j..j + 1)),
+            }
+        }
+        let value = |i: usize| -> num_bigint::BigInt {
+            let mut x = num_bigint::BigUint::default();
+            for (r, js) in radices.iter().rev() {
+                let d = js
+                    .clone()
+                    .rev()
+                    .fold(0, |d, j| d * self.primes[j] + u64::from(self.digits[j][i]));
+                x *= *r;
+                x += d;
+            }
+            x.into()
+        };
+        let modulus: num_bigint::BigInt = radices
+            .iter()
+            .map(|(r, _)| *r)
+            .product::<num_bigint::BigUint>()
+            .into();
+        let n = self.digits[0].len();
         // Probe spread-out coefficients before reconstructing a potentially huge basis.
         // Checking only the final coefficient often checks a trivial zero or one.
         // These probes are a heuristic: an unprobed large coefficient can still
         // make the full reconstruction fail again on the next batch.
-        let context = crt::WangContext::new(&self.modulus)?;
-        let probes = 8.min(self.residues.len());
+        let context = crt::WangContext::new(&modulus)?;
+        let probes = 8.min(n);
         for i in 0..probes {
-            let index = i * (self.residues.len() - 1) / probes.saturating_sub(1).max(1);
-            context.reconstruct(&self.residues[index])?;
+            let index = i * (n - 1) / probes.saturating_sub(1).max(1);
+            context.reconstruct(&value(index))?;
         }
-        let bound = (&self.modulus / 2u32).sqrt();
-        let run = |xs: &[num_bigint::BigInt]| -> Option<Vec<BigRational>> {
+        let bound = (&modulus / 2u32).sqrt();
+        let run = |c: usize| -> Option<Vec<BigRational>> {
             // Coefficients of one polynomial mostly share denominators. Once `d` holds
             // theirs, `x * d` is a small integer and needs no half extended gcd. Both
             // parts are within the Wang bound, so this is the fraction Wang would find.
             let mut d = num_bigint::BigInt::from(1u32);
-            xs.iter()
-                .map(|x| {
-                    let y = crt::symmetric(&(x * &d), &self.modulus);
+            (c * 256..n.min(c * 256 + 256))
+                .map(|i| {
+                    let x = value(i);
+                    let y = crt::symmetric(&(&x * &d), &modulus);
                     if y.abs() <= bound {
                         return Some(BigRational::new(y, d.clone()));
                     }
-                    let c = context.reconstruct(x)?;
+                    let c = context.reconstruct(&x)?;
                     let lcm = d.lcm(c.denom());
                     d = if lcm <= bound { lcm } else { c.denom().clone() };
                     Some(c)
@@ -183,14 +216,16 @@ impl Accumulator {
                 .collect()
         };
         #[cfg(feature = "parallel")]
-        return self
-            .residues
-            .par_chunks(256)
+        return (0..n.div_ceil(256))
+            .into_par_iter()
             .map(run)
             .collect::<Option<Vec<_>>>()
             .map(|v| v.concat());
         #[cfg(not(feature = "parallel"))]
-        run(&self.residues)
+        (0..n.div_ceil(256))
+            .map(run)
+            .collect::<Option<Vec<_>>>()
+            .map(|v| v.concat())
     }
 }
 
@@ -258,11 +293,11 @@ impl Group {
         let restart = self
             .recovery
             .as_ref()
-            .is_some_and(|a| a.count >= self.recovery_limit);
+            .is_some_and(|a| a.count() >= self.recovery_limit);
         if restart {
             self.recovery_limit = self.recovery_limit.saturating_mul(2);
             self.recovery = Some(Accumulator::default());
-        } else if self.recovery.is_none() && self.primary.count >= 32 {
+        } else if self.recovery.is_none() && self.primary.count() >= 32 {
             self.recovery = Some(Accumulator::default());
         }
         self.primary.add(p, &values);
@@ -332,8 +367,16 @@ fn reconstruct_inner(
     let mut primes = primes.into_iter();
     let mut groups: HashMap<Vec<Monomial>, Group> = HashMap::new();
     let mut trace = TraceState::default();
+    // The full check needs no candidate until the comparison, so it runs at a
+    // reserved prime alongside the first learned image, which leaves most of the
+    // pool idle.
+    let mut check = None;
     loop {
-        let count = groups.values().map(|g| g.primary.count).max().unwrap_or(0);
+        let count = groups
+            .values()
+            .map(|g| g.primary.count())
+            .max()
+            .unwrap_or(0);
         // After the learned image, replay whole lane chunks and grow by about 12.5%,
         // rather than doubling the work near completion.
         let batch = if count == 0 {
@@ -379,10 +422,28 @@ fn reconstruct_inner(
                 None => ps.iter().map(image).collect(),
             }
         };
+        let reserved = (count == 0).then(|| {
+            primes
+                .by_ref()
+                .find_map(|p| Some((p, map_input(input, p)?)))
+        });
         #[cfg(feature = "parallel")]
-        let images: Vec<_> = ps.par_chunks(PRIMES).flat_map_iter(chunk).collect();
+        let (images, reserved) = rayon::join(
+            || {
+                ps.par_chunks(PRIMES)
+                    .flat_map_iter(chunk)
+                    .collect::<Vec<_>>()
+            },
+            || reserved.flatten().map(full_check).transpose(),
+        );
         #[cfg(not(feature = "parallel"))]
-        let images: Vec<_> = ps.chunks(PRIMES).flat_map(chunk).collect();
+        let (images, reserved) = (
+            ps.chunks(PRIMES).flat_map(chunk).collect::<Vec<_>>(),
+            reserved.flatten().map(full_check).transpose(),
+        );
+        if let Some(reserved) = reserved? {
+            check = Some(reserved);
+        }
 
         for (p, image) in ps.into_iter().zip(images) {
             let Some((mut basis, learned)) = image? else {
@@ -407,7 +468,7 @@ fn reconstruct_inner(
                 stats,
             );
         }
-        let Some((key, group)) = groups.iter().max_by_key(|(_, g)| g.primary.count) else {
+        let Some((key, group)) = groups.iter().max_by_key(|(_, g)| g.primary.count()) else {
             continue;
         };
         let key = key.clone();
@@ -421,14 +482,16 @@ fn reconstruct_inner(
         for candidate in candidates {
             // One cheap agreement image, followed by one FULL independent F4 run.
             // Request them individually: a candidate never triggers a whole batch.
+            let reduce = |p| reduce_candidate(&candidate, p);
             for stage in 0..2 {
-                let Some((p, mapped, reduced)) = primes.by_ref().find_map(|p| {
-                    let mapped = map_input(input, p)?;
-                    let reduced: Option<Vec<_>> = candidate
-                        .iter()
-                        .map(|f| f.try_map(|c| Fp::from_rational(c, p)))
-                        .collect();
-                    Some((p, mapped, reduced?))
+                let reserved = (stage == 1)
+                    .then(|| check.take())
+                    .flatten()
+                    .and_then(|(p, mapped, basis)| Some((p, mapped, reduce(p)?, Some(basis))));
+                let Some((p, mapped, reduced, full)) = reserved.or_else(|| {
+                    primes
+                        .by_ref()
+                        .find_map(|p| Some((p, map_input(input, p)?, reduce(p)?, None)))
                 }) else {
                     return Err(GroebnerError::ReconstructionFailed);
                 };
@@ -445,8 +508,12 @@ fn reconstruct_inner(
                         (basis, Some(learned))
                     }
                 } else {
-                    let (basis, learned) = learn(mapped.clone())?;
-                    (basis, Some(learned))
+                    // The untraced run is faster and shares nothing with the trace.
+                    let basis = match full {
+                        Some(basis) => basis,
+                        None => groebner_basis_f4_direct(mapped.clone(), true)?,
+                    };
+                    (basis, None)
                 };
                 #[cfg(test)]
                 {
@@ -454,6 +521,11 @@ fn reconstruct_inner(
                 }
                 let agrees = basis == reduced;
                 if !agrees {
+                    // Learn a trace from a failed full check only to diagnose it.
+                    let learned = match learned {
+                        None if stage == 1 => Some(learn(mapped.clone())?.1),
+                        learned => learned,
+                    };
                     #[cfg(test)]
                     {
                         stats.validation_failures += 1;
@@ -508,6 +580,19 @@ fn reconstruct_inner(
     }
 }
 
+type Check = (u64, Vec<Polynomial<Fp>>, Vec<Polynomial<Fp>>);
+
+fn full_check((p, mapped): (u64, Vec<Polynomial<Fp>>)) -> Result<Check, GroebnerError> {
+    groebner_basis_f4_direct(mapped.clone(), true).map(|basis| (p, mapped, basis))
+}
+
+fn reduce_candidate(candidate: &[Polynomial<BigRational>], p: u64) -> Option<Vec<Polynomial<Fp>>> {
+    candidate
+        .iter()
+        .map(|f| f.try_map(|c| Fp::from_rational(c, p)))
+        .collect()
+}
+
 fn map_input(input: &[Polynomial<BigRational>], p: u64) -> Option<Vec<Polynomial<Fp>>> {
     input
         .iter()
@@ -524,7 +609,6 @@ fn map_input(input: &[Polynomial<BigRational>], p: u64) -> Option<Vec<Polynomial
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::f4::groebner_basis_f4_direct;
     use crate::{MonomialOrder, PolynomialRing};
     use num_traits::One;
     fn input(text: &str) -> Vec<Polynomial<BigRational>> {
