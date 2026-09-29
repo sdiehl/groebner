@@ -590,12 +590,7 @@ fn sweep_lanes(
             hi = hi.max(span(piv.columns).1);
             let tail = piv.columns[1..].iter().zip(&piv.coefficients[1..]);
             if kernel.deferred {
-                for (&pc, pv) in tail {
-                    let cell = &mut buf[pc as usize];
-                    for l in 0..PRIMES {
-                        cell[l] += u64::from(c[l]) * u64::from(pv[l]);
-                    }
-                }
+                accumulate_lanes(buf, tail, c);
             } else {
                 for (&pc, pv) in tail {
                     let cell = &mut buf[pc as usize];
@@ -628,6 +623,48 @@ fn sweep_lanes(
     }
     let split = out.coefficients.first().is_some_and(|v| v.contains(&0));
     (!split).then_some(out)
+}
+
+// `buf[column] += c * coefficient` in every lane, without reduction.
+#[cfg(not(target_arch = "aarch64"))]
+fn accumulate_lanes<'a>(
+    buf: &mut [[u64; PRIMES]],
+    tail: impl Iterator<Item = (&'a u32, &'a Lanes)>,
+    c: Lanes,
+) {
+    for (&pc, pv) in tail {
+        let cell = &mut buf[pc as usize];
+        for l in 0..PRIMES {
+            cell[l] += u64::from(c[l]) * u64::from(pv[l]);
+        }
+    }
+}
+
+// Two widening multiply-accumulates cover the four lanes, where scalar code needs four.
+#[cfg(target_arch = "aarch64")]
+#[allow(unsafe_code)]
+fn accumulate_lanes<'a>(
+    buf: &mut [[u64; PRIMES]],
+    tail: impl Iterator<Item = (&'a u32, &'a Lanes)>,
+    c: Lanes,
+) {
+    use std::arch::aarch64::{
+        vget_low_u32, vld1q_u32, vld1q_u64, vmlal_high_u32, vmlal_u32, vst1q_u64,
+    };
+    const { assert!(PRIMES == 4) };
+    // SAFETY: NEON is part of the aarch64 baseline, and each pointer addresses a whole
+    // array of four `u32` or four `u64` lanes.
+    unsafe {
+        let m = vld1q_u32(c.as_ptr());
+        for (&pc, pv) in tail {
+            let cell = buf[pc as usize].as_mut_ptr();
+            let v = vld1q_u32(pv.as_ptr());
+            let lo = vmlal_u32(vld1q_u64(cell), vget_low_u32(v), vget_low_u32(m));
+            let hi = vmlal_high_u32(vld1q_u64(cell.add(2)), v, m);
+            vst1q_u64(cell, lo);
+            vst1q_u64(cell.add(2), hi);
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -1027,9 +1064,17 @@ impl MatrixPlan {
         rows: impl Iterator<Item = usize>,
         coefficients: impl Fn(usize) -> Vec<C>,
     ) -> Option<Matrix<C>> {
+        // Rows of one element share its planned support: an element that kept all of
+        // it, as most do, takes the planned columns without matching monomials again.
+        let mut kept = vec![None; basis.len()];
         // Columns of the basis polynomial, which may have lost terms since planning.
-        let columns = |row: &PlannedRow| {
+        let mut columns = |row: &PlannedRow| {
             let p = basis.get(row.basis)?;
+            let same =
+                *kept[row.basis].get_or_insert_with(|| p.terms.iter().map(|t| &t.0).eq(&row.terms));
+            if same {
+                return Some(row.columns.clone());
+            }
             let mut columns = Vec::with_capacity(p.terms.len());
             let mut k = 0;
             for (m, _) in &p.terms {

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Accumulate lane replay rows with NEON widening multiply-accumulate.
+- Reuse planned replay columns for basis elements with unchanged support.
 - Accumulate CRT images as machine word mixed radix digits.
 - Validate rational F4 untraced, overlapping the first learned image.
 - Replay rational F4 traces at four primes per pass.
