@@ -1,6 +1,6 @@
 # Groebner Basis
 
-An optimized implementation of the F4 and Buchberger algorithm for computing Groebner bases in Rust. It achieves SOTA performance on the standard benchmarks over prime fields, using parallel sparse linear algebra, and computes rational bases by multi-modular reconstruction.
+An optimized implementation of the F4 and Buchberger algorithm for computing Groebner bases in Rust. It achieves SOTA performance on the standard benchmarks over prime fields, using parallel sparse linear algebra, with SIMD row reduction kernels, and computes rational bases by multi-modular reconstruction.
 
 Examples:
 

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Validate rational candidates against a held-out replayed image.
+- Reduce rational candidates modulo check primes in parallel.
 - Accumulate lane replay rows with NEON widening multiply-accumulate.
 - Reuse planned replay columns for basis elements with unchanged support.
 - Accumulate CRT images as machine word mixed radix digits.

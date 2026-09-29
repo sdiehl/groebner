@@ -11,6 +11,9 @@ use std::collections::HashMap;
 
 type Layout = Vec<Vec<Monomial>>;
 type Image = Option<(Vec<Polynomial<Fp>>, Option<F4Trace>)>;
+// A basis modulo the prime it was computed at.
+type Residues = (u64, Vec<Polynomial<Fp>>);
+
 /// Compute a rational basis by CRT and rational reconstruction, checked at a fresh prime.
 /// With `certify`, prove equality with the input ideal over Q: check Buchberger's
 /// criterion, reduce every input by the candidate, and verify exact cofactor
@@ -371,6 +374,9 @@ fn reconstruct_inner(
     // reserved prime alongside the first learned image, which leaves most of the
     // pool idle.
     let mut check = None;
+    // The newest replayed image is held out of the accumulators as the next
+    // candidate's agreement check, which saves replaying a fresh prime.
+    let mut spare: Option<Residues> = None;
     loop {
         let count = groups
             .values()
@@ -393,35 +399,7 @@ fn reconstruct_inner(
             return Err(GroebnerError::ReconstructionFailed);
         }
 
-        let image = |&p: &u64| -> Result<Image, GroebnerError> {
-            map_input(input, p)
-                .map(|fs| {
-                    if let Some(t) = &trace.current
-                        && let Some(basis) = t.replay(fs.clone())
-                    {
-                        return Ok((basis, None));
-                    }
-                    learn(fs).map(|(basis, trace)| (basis, Some(trace)))
-                })
-                .transpose()
-        };
-        // A full chunk of primes replays in one pass; the rest go one at a time.
-        let chunk = |ps: &[u64]| -> Vec<Result<Image, GroebnerError>> {
-            let lanes = <[u64; PRIMES]>::try_from(ps)
-                .ok()
-                .zip(trace.current.as_ref())
-                .and_then(|(primes, t)| {
-                    let inputs = ps
-                        .iter()
-                        .map(|&p| map_input(input, p))
-                        .collect::<Option<_>>()?;
-                    t.replay_lanes(inputs, primes)
-                });
-            match lanes {
-                Some(bases) => bases.into_iter().map(|b| Ok(Some((b, None)))).collect(),
-                None => ps.iter().map(image).collect(),
-            }
-        };
+        let chunk = |ps: &[u64]| chunk_images(input, trace.current.as_ref(), ps);
         let reserved = (count == 0).then(|| {
             primes
                 .by_ref()
@@ -445,7 +423,17 @@ fn reconstruct_inner(
             check = Some(reserved);
         }
 
-        for (p, image) in ps.into_iter().zip(images) {
+        if let Some((p, basis)) = spare.take() {
+            add_image(
+                &mut groups,
+                p,
+                &basis,
+                #[cfg(test)]
+                stats,
+            );
+        }
+        let last = (ps.len() > 1).then(|| ps.len() - 1);
+        for (i, (p, image)) in ps.into_iter().zip(images).enumerate() {
             let Some((mut basis, learned)) = image? else {
                 continue;
             };
@@ -460,6 +448,10 @@ fn reconstruct_inner(
                     stats.trace_replacements += 1;
                 }
             }
+            if Some(i) == last {
+                spare = Some((p, basis));
+                continue;
+            }
             add_image(
                 &mut groups,
                 p,
@@ -468,26 +460,47 @@ fn reconstruct_inner(
                 stats,
             );
         }
-        let Some((key, group)) = groups.iter().max_by_key(|(_, g)| g.primary.count()) else {
+        let attempt = |groups: &HashMap<Vec<Monomial>, Group>| {
+            let (key, group) = groups.iter().max_by_key(|(_, g)| g.primary.count())?;
+            let candidates: Vec<_> = std::iter::once(&group.primary)
+                .chain(group.recovery.iter())
+                .filter_map(Accumulator::reconstruct)
+                .map(|values| group.decode(values, &input[0]))
+                .collect();
+            Some((key.clone(), candidates))
+        };
+        let mut found = attempt(&groups);
+        // Without the spare's prime reconstruction may fall just short. Failed
+        // attempts are cheap, so retry with it rather than replay another batch.
+        if found.as_ref().is_none_or(|(_, c)| c.is_empty())
+            && let Some((p, basis)) = spare.take()
+        {
+            add_image(
+                &mut groups,
+                p,
+                &basis,
+                #[cfg(test)]
+                stats,
+            );
+            found = attempt(&groups);
+        }
+        let Some((key, candidates)) = found else {
             continue;
         };
-        let key = key.clone();
-
-        let candidates: Vec<_> = std::iter::once(&group.primary)
-            .chain(group.recovery.iter())
-            .filter_map(Accumulator::reconstruct)
-            .map(|values| group.decode(values, &input[0]))
-            .collect();
 
         for candidate in candidates {
             // One cheap agreement image, followed by one FULL independent F4 run.
             // Request them individually: a candidate never triggers a whole batch.
             let reduce = |p| reduce_candidate(&candidate, p);
             for stage in 0..2 {
-                let reserved = (stage == 1)
-                    .then(|| check.take())
-                    .flatten()
-                    .and_then(|(p, mapped, basis)| Some((p, mapped, reduce(p)?, Some(basis))));
+                let reserved = if stage == 0 {
+                    spare.take_if(|(_, basis)| heads(basis) == key)
+                } else {
+                    check.take()
+                };
+                let reserved = reserved.and_then(|(p, basis)| {
+                    Some((p, map_input(input, p)?, reduce(p)?, Some(basis)))
+                });
                 let Some((p, mapped, reduced, full)) = reserved.or_else(|| {
                     primes
                         .by_ref()
@@ -496,7 +509,9 @@ fn reconstruct_inner(
                     return Err(GroebnerError::ReconstructionFailed);
                 };
 
-                let (basis, learned) = if stage == 0 {
+                let (basis, learned) = if let Some(basis) = full {
+                    (basis, None)
+                } else if stage == 0 {
                     if let Some(basis) = trace
                         .current
                         .as_ref()
@@ -509,11 +524,7 @@ fn reconstruct_inner(
                     }
                 } else {
                     // The untraced run is faster and shares nothing with the trace.
-                    let basis = match full {
-                        Some(basis) => basis,
-                        None => groebner_basis_f4_direct(mapped.clone(), true)?,
-                    };
-                    (basis, None)
+                    (groebner_basis_f4_direct(mapped.clone(), true)?, None)
                 };
                 #[cfg(test)]
                 {
@@ -580,17 +591,50 @@ fn reconstruct_inner(
     }
 }
 
-type Check = (u64, Vec<Polynomial<Fp>>, Vec<Polynomial<Fp>>);
+// A full chunk of primes replays in one pass; the rest go one at a time.
+fn chunk_images(
+    input: &[Polynomial<BigRational>],
+    trace: Option<&F4Trace>,
+    ps: &[u64],
+) -> Vec<Result<Image, GroebnerError>> {
+    let image = |&p: &u64| -> Result<Image, GroebnerError> {
+        map_input(input, p)
+            .map(|fs| {
+                if let Some(t) = trace
+                    && let Some(basis) = t.replay(fs.clone())
+                {
+                    return Ok((basis, None));
+                }
+                learn(fs).map(|(basis, trace)| (basis, Some(trace)))
+            })
+            .transpose()
+    };
+    let lanes = <[u64; PRIMES]>::try_from(ps)
+        .ok()
+        .zip(trace)
+        .and_then(|(primes, t)| {
+            let inputs = ps
+                .iter()
+                .map(|&p| map_input(input, p))
+                .collect::<Option<_>>()?;
+            t.replay_lanes(inputs, primes)
+        });
+    match lanes {
+        Some(bases) => bases.into_iter().map(|b| Ok(Some((b, None)))).collect(),
+        None => ps.iter().map(image).collect(),
+    }
+}
 
-fn full_check((p, mapped): (u64, Vec<Polynomial<Fp>>)) -> Result<Check, GroebnerError> {
-    groebner_basis_f4_direct(mapped.clone(), true).map(|basis| (p, mapped, basis))
+fn full_check((p, mapped): (u64, Vec<Polynomial<Fp>>)) -> Result<Residues, GroebnerError> {
+    groebner_basis_f4_direct(mapped, true).map(|basis| (p, basis))
 }
 
 fn reduce_candidate(candidate: &[Polynomial<BigRational>], p: u64) -> Option<Vec<Polynomial<Fp>>> {
-    candidate
-        .iter()
-        .map(|f| f.try_map(|c| Fp::from_rational(c, p)))
-        .collect()
+    let reduce = |f: &Polynomial<BigRational>| f.try_map(|c| Fp::from_rational(c, p));
+    #[cfg(feature = "parallel")]
+    return candidate.par_iter().map(reduce).collect();
+    #[cfg(not(feature = "parallel"))]
+    candidate.iter().map(reduce).collect()
 }
 
 fn map_input(input: &[Polynomial<BigRational>], p: u64) -> Option<Vec<Polynomial<Fp>>> {
