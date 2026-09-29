@@ -38,29 +38,29 @@ Reduced basis with `groebner_basis_f4` over GF(32003) in GRevLex, on Apple M5 si
 | --------- | ---------: | -----: |
 | chandra12 |       2048 | 0.42 s |
 | chandra13 |       4096 | 1.52 s |
-| cyclic8   |        372 | 0.18 s |
+| cyclic8   |        372 | 0.17 s |
 | cyclic9   |       1344 | 5.39 s |
 | eco12     |        743 | 0.26 s |
 | eco13     |       1465 | 0.87 s |
 | eco14     |       2852 | 4.76 s |
-| henrion7  |        415 | 0.36 s |
+| henrion7  |        415 | 0.32 s |
 | henrion8  |       2344 | 26.4 s |
 | katsura11 |       1050 | 0.48 s |
 | katsura12 |       2091 | 2.42 s |
 | katsura13 |       4140 | 13.3 s |
 | noon9     |       3682 | 1.62 s |
 | noon10    |      10273 | 10.1 s |
-| reimer7   |        227 | 0.14 s |
+| reimer7   |        227 | 0.13 s |
 | reimer8   |        612 | 1.68 s |
 
 With a runtime modulus through `Zp`, same settings, by size of the prime.
 
 | System    |  32003 | 2^31 - 1 | 2^62 - 57 |
 | --------- | -----: | -------: | --------: |
-| cyclic8   | 0.19 s |   0.22 s |    0.25 s |
+| cyclic8   | 0.18 s |   0.21 s |    0.25 s |
 | katsura11 | 0.51 s |   0.65 s |    0.81 s |
 | noon9     | 1.69 s |   1.81 s |    1.98 s |
-| reimer8   | 1.68 s |   1.86 s |    2.21 s |
+| reimer8   | 1.68 s |   1.84 s |    2.21 s |
 
 Over the rationals with `BigRational` coefficients, same settings.
 
