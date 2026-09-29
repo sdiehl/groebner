@@ -7,20 +7,28 @@ use num_integer::Integer;
 use num_rational::BigRational;
 use num_traits::{One, Signed, Zero};
 
-// The 63 bits of `a` starting at bit `shift`.
-fn window(a: &BigUint, shift: u64) -> i128 {
-    let mut digits = a.iter_u64_digits().skip((shift / 64) as usize);
+// The 63 bits of the little-endian `digits` starting at bit `shift`.
+fn window(digits: impl Iterator<Item = u64>, shift: u64) -> i128 {
+    let mut digits = digits.skip((shift / 64) as usize);
     let lo = u128::from(digits.next().unwrap_or(0));
     let hi = u128::from(digits.next().unwrap_or(0));
     ((hi << 64 | lo) >> (shift % 64)) as i128 & i128::from(i64::MAX)
 }
 
-// Knuth's Algorithm L: the cofactors `[a, b, c, d]` of the quotients that the leading
-// words of `u >= v` determine, mapping `(u, v)` to `(a u + b v, c u + d v)`. Stops before
-// `|d|` would exceed `limit`, and returns `None` when no quotient is determined.
 fn run(u: &BigUint, v: &BigUint, limit: i128) -> Option<[i64; 4]> {
     let shift = u.bits().saturating_sub(63);
-    let (mut x, mut y) = (window(u, shift), window(v, shift));
+    let (x, y) = (
+        window(u.iter_u64_digits(), shift),
+        window(v.iter_u64_digits(), shift),
+    );
+    cofactors(x, y, limit)
+}
+
+// Knuth's Algorithm L: the cofactors `[a, b, c, d]` of the quotients that the leading
+// words `x >= y` of `u >= v` determine, mapping `(u, v)` to `(a u + b v, c u + d v)`.
+// Stops before `|d|` would exceed `limit`, and returns `None` when no quotient is
+// determined.
+fn cofactors(mut x: i128, mut y: i128, limit: i128) -> Option<[i64; 4]> {
     let (mut a, mut b, mut c, mut d) = (1i128, 0i128, 0i128, 1i128);
     // Every operand is below 2^64, so the quotients take the hardware 64-bit divide.
     let quotient = |n: i128, m: i128| (n >= 0 && m > 0).then(|| i128::from(n as u64 / m as u64));
@@ -43,8 +51,101 @@ fn nonnegative(x: BigInt) -> BigUint {
     x.into_parts().1
 }
 
+// Operands of at most this many words take the allocation-free gcd.
+const WORDS: usize = 8;
+type Words = [u64; WORDS];
+
+fn bits(x: &Words) -> u64 {
+    x.iter()
+        .rposition(|&w| w != 0)
+        .map_or(0, |i| 64 * i as u64 + u64::from(64 - x[i].leading_zeros()))
+}
+
+// `(a u + b v, c u + d v)` for Lehmer cofactors, whose results are nonnegative. The
+// signs of `a` and `b` differ, so each limb sum stays within an `i128`.
+fn apply_words(m: [i64; 4], u: &Words, v: &Words) -> (Words, Words) {
+    let combine = |a: i64, b: i64| {
+        let (mut out, mut carry) = ([0; WORDS], 0i128);
+        for i in 0..WORDS {
+            let s = i128::from(a) * i128::from(u[i]) + i128::from(b) * i128::from(v[i]) + carry;
+            out[i] = s as u64;
+            carry = s >> 64;
+        }
+        out
+    };
+    (combine(m[0], m[1]), combine(m[2], m[3]))
+}
+
+fn words(x: &BigUint) -> Option<Words> {
+    let mut out = [0; WORDS];
+    for (i, d) in x.iter_u64_digits().enumerate() {
+        *out.get_mut(i)? = d;
+    }
+    Some(out)
+}
+
+// Lehmer's gcd of `u >= v` on fixed words, finishing in a single word.
+fn gcd_words(mut u: Words, mut v: Words) -> BigUint {
+    while bits(&v) > 64 {
+        let shift = bits(&u).saturating_sub(63);
+        let m = cofactors(
+            window(u.iter().copied(), shift),
+            window(v.iter().copied(), shift),
+            i128::from(i64::MAX),
+        );
+        if let Some(m) = m {
+            (u, v) = apply_words(m, &u, &v);
+        } else {
+            // A quotient too large for a word, which is rare after the first step.
+            let (a, b) = (
+                BigUint::from_slice(&to_u32(&u)),
+                BigUint::from_slice(&to_u32(&v)),
+            );
+            let r = a % &b;
+            (u, v) = (v, words(&r).unwrap_or_else(|| unreachable!("r < v")));
+        }
+    }
+    let y = v[0];
+    if y == 0 {
+        return BigUint::from_slice(&to_u32(&u));
+    }
+    let top = bits(&u).div_ceil(64) as usize;
+    let x = u[..top].iter().rev().fold(0, |r, &w| {
+        ((u128::from(r) << 64 | u128::from(w)) % u128::from(y)) as u64
+    });
+    euclid(x, y).into()
+}
+
+fn to_u32(x: &Words) -> Vec<u32> {
+    x.iter()
+        .flat_map(|&w| [w as u32, (w >> 32) as u32])
+        .collect()
+}
+
+fn euclid(mut x: u64, mut y: u64) -> u64 {
+    while x != 0 {
+        (x, y) = (y % x, x);
+    }
+    y
+}
+
+// `gcd(u, y)` for a word `y <= u`.
+fn finish(u: BigUint, y: u64) -> BigUint {
+    if y == 0 {
+        return u;
+    }
+    euclid((u % y).iter_u64_digits().next().unwrap_or(0), y).into()
+}
+
 /// Greatest common divisor of two nonnegative integers.
 pub(crate) fn gcd(a: &BigUint, b: &BigUint) -> BigUint {
+    if let (Some(x), Some(y)) = (words(a), words(b)) {
+        return if a >= b {
+            gcd_words(x, y)
+        } else {
+            gcd_words(y, x)
+        };
+    }
     let (mut u, mut v) = if a >= b {
         (a.clone(), b.clone())
     } else {
@@ -58,14 +159,7 @@ pub(crate) fn gcd(a: &BigUint, b: &BigUint) -> BigUint {
             (u, v) = (v.clone(), u % v);
         }
     }
-    let Some(mut y) = v.iter_u64_digits().next() else {
-        return u;
-    };
-    let mut x = (u % y).iter_u64_digits().next().unwrap_or(0);
-    while x != 0 {
-        (x, y) = (y % x, x);
-    }
-    y.into()
+    finish(u, v.iter_u64_digits().next().unwrap_or(0))
 }
 
 /// `n / d` in lowest terms, for `d > 0`.

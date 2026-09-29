@@ -53,6 +53,17 @@ Reduced basis with `groebner_basis_f4` over GF(32003) in GRevLex, on Apple M5 si
 | reimer7   |        227 | 0.14 s |
 | reimer8   |        612 | 2.65 s |
 
+Over the rationals with `BigRational` coefficients, same settings.
+
+| System    | Basis size |   Time |
+| --------- | ---------: | -----: |
+| cyclic8   |        372 | 1.94 s |
+| eco12     |        743 | 1.57 s |
+| katsura9  |        272 | 0.33 s |
+| katsura10 |        537 | 2.03 s |
+| noon9     |       3682 | 3.92 s |
+| reimer7   |        227 | 0.76 s |
+
 Inputs are in [`benches/data`](benches/data).
 
 ## Test Suite

@@ -194,11 +194,13 @@ impl Accumulator {
             return None;
         }
         let bound = (&modulus / 2u32).sqrt();
-        let probes = 8.min(n);
+        let probes = 64.min(n);
         for i in 0..probes {
             let index = i * (n - 1) / probes.saturating_sub(1).max(1);
             lehmer::wang(&value(index), &modulus, &bound)?;
         }
+        // A failure anywhere fails the attempt, so the other chunks stop early.
+        let failed = std::sync::atomic::AtomicBool::new(false);
         let run = |c: usize| -> Option<Vec<BigRational>> {
             // Coefficients of one polynomial mostly share denominators. Once `d` holds
             // theirs, `x * d` is a small integer and needs no half extended gcd. Both
@@ -206,12 +208,18 @@ impl Accumulator {
             let mut d = num_bigint::BigInt::from(1u32);
             (c * 256..n.min(c * 256 + 256))
                 .map(|i| {
+                    if failed.load(std::sync::atomic::Ordering::Relaxed) {
+                        return None;
+                    }
                     let x = value(i);
                     let y = crt::symmetric(&(&x * &d), &modulus);
                     if y.magnitude() <= bound.magnitude() {
                         return Some(lehmer::fraction(y, d.magnitude()));
                     }
-                    let c = lehmer::wang(&x, &modulus, &bound)?;
+                    let Some(c) = lehmer::wang(&x, &modulus, &bound) else {
+                        failed.store(true, std::sync::atomic::Ordering::Relaxed);
+                        return None;
+                    };
                     let g = lehmer::gcd(d.magnitude(), c.denom().magnitude());
                     let lcm = &d / num_bigint::BigInt::from(g) * c.denom();
                     d = if lcm <= bound { lcm } else { c.denom().clone() };
