@@ -62,13 +62,13 @@ With a runtime modulus through `Zp`, same settings, by size of the prime.
 | noon9     | 1.70 s |   1.89 s |    2.50 s |
 | reimer8   | 1.71 s |   1.84 s |    3.45 s |
 
-Over the rationals with `BigRational` coefficients, same settings. Rows marked * use `RationalOptions { batch: Some(40) }`.
+Over the rationals with `BigRational` coefficients, same settings.
 
 | System    | Basis size |   Time |
 | --------- | ---------: | -----: |
 | cyclic8   |        372 | 1.94 s |
 | eco12     |        743 | 1.57 s |
-| katsura9* |        272 | 0.23 s |
+| katsura9  |        272 | 0.23 s |
 | katsura10 |        537 | 2.03 s |
 | noon9     |       3682 | 3.92 s |
 | reimer7   |        227 | 0.71 s |

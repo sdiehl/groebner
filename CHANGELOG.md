@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Take Lehmer reconstruction and mixed radix CRT from `polycore` 0.1.2.
+- Widen rational replay rounds automatically when the first image is quick.
 
 ## 0.5.0 (2026-09-29)
 

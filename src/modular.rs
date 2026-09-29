@@ -31,8 +31,8 @@ pub fn groebner_basis_f4_rational(
 pub struct RationalOptions {
     /// Primes replayed per round after the first image. By default rounds start at
     /// eight primes and grow by about 12.5%, which suits systems that need few primes
-    /// or have large matrices. Small systems with tall coefficients finish sooner
-    /// with a round wide enough to fill the thread pool, such as four per thread.
+    /// or have large matrices. When the first image is quick, rounds instead fill the
+    /// thread pool with one lane chunk per thread, amortizing their overhead.
     pub batch: Option<usize>,
 }
 
@@ -50,6 +50,7 @@ pub fn groebner_basis_f4_rational_with(
         &primitive,
         Primes::below(1 << 23),
         options.batch,
+        true,
         |_, _| {},
         #[cfg(test)]
         &mut ReconstructionStats::default(),
@@ -253,30 +254,48 @@ fn reconstruct(
         input,
         primes,
         None,
+        false,
         inspect_image,
         #[cfg(test)]
         &mut ReconstructionStats::default(),
     )
 }
 
+// A first round quicker than this learns a trace whose narrow replay rounds would
+// take about a third as long, mostly fork-join and reconstruction overhead, so the
+// replay rounds widen to one lane chunk per thread. Deciding before any replay avoids
+// overshooting the primes needed with a late wide round.
+const WIDE_LEARN: std::time::Duration = std::time::Duration::from_millis(150);
+
 // After the learned image, replay whole lane chunks and grow by about 12.5%, rather
-// than doubling the work near completion, unless the caller fixed the width.
-fn schedule(count: usize, batch: Option<usize>) -> usize {
+// than doubling the work near completion, unless the caller fixed the width or a quick
+// first image widened it.
+fn schedule(count: usize, batch: Option<usize>, wide: bool) -> usize {
+    let narrow = count
+        .div_ceil(8)
+        .max(2 * PRIMES)
+        .next_multiple_of(PRIMES)
+        .min(32);
     match (count, batch) {
         (0, _) => 1,
         (_, Some(batch)) => batch.max(1),
-        _ => count
-            .div_ceil(8)
-            .max(2 * PRIMES)
-            .next_multiple_of(PRIMES)
-            .min(32),
+        _ if wide => narrow.max(PRIMES * threads()),
+        _ => narrow,
     }
+}
+
+fn threads() -> usize {
+    #[cfg(feature = "parallel")]
+    return rayon::current_num_threads();
+    #[cfg(not(feature = "parallel"))]
+    1
 }
 
 fn reconstruct_inner(
     input: &[Polynomial<BigRational>],
     primes: impl IntoIterator<Item = u64>,
     batch: Option<usize>,
+    widen: bool,
     mut inspect_image: impl FnMut(u64, &mut Vec<Polynomial<Fp>>),
     #[cfg(test)] stats: &mut ReconstructionStats,
 ) -> Result<Vec<Polynomial<BigRational>>, GroebnerError> {
@@ -290,13 +309,15 @@ fn reconstruct_inner(
     // The newest replayed image is held out of the accumulators as the next
     // candidate's agreement check, which saves replaying a fresh prime.
     let mut spare: Option<Residues> = None;
+    let mut wide = false;
     loop {
         let count = groups
             .values()
             .map(|g| g.primary.image_count())
             .max()
             .unwrap_or(0);
-        let ps: Vec<_> = primes.by_ref().take(schedule(count, batch)).collect();
+        let ps: Vec<_> = primes.by_ref().take(schedule(count, batch, wide)).collect();
+        let start = std::time::Instant::now();
         if ps.is_empty() {
             return Err(GroebnerError::ReconstructionFailed);
         }
@@ -323,6 +344,9 @@ fn reconstruct_inner(
         );
         if let Some(reserved) = reserved? {
             check = Some(reserved);
+        }
+        if count == 0 {
+            wide = widen && start.elapsed() < WIDE_LEARN;
         }
 
         if let Some((p, basis)) = spare.take() {
@@ -649,12 +673,40 @@ mod tests {
         let mut polys = input("x + y");
         polys[0].terms[1].1 = BigRational::from_integer(num_bigint::BigInt::from(1u32) << 900);
         let mut stats = ReconstructionStats::default();
-        let result = reconstruct_inner(&polys, Primes::below(1 << 31), None, |_, _| {}, &mut stats)
-            .expect("reconstruction");
+        let result = reconstruct_inner(
+            &polys,
+            Primes::below(1 << 31),
+            None,
+            false,
+            |_, _| {},
+            &mut stats,
+        )
+        .expect("reconstruction");
         assert_eq!(result, polys);
         assert!(
             stats.images <= 75,
             "healthy images must not be recomputed: {stats:?}"
+        );
+    }
+
+    #[test]
+    fn quick_first_image_widens_rounds() {
+        let mut polys = input("x + y");
+        polys[0].terms[1].1 = BigRational::from_integer(num_bigint::BigInt::from(1u32) << 900);
+        let mut stats = ReconstructionStats::default();
+        let result = reconstruct_inner(
+            &polys,
+            Primes::below(1 << 31),
+            None,
+            true,
+            |_, _| {},
+            &mut stats,
+        )
+        .expect("reconstruction");
+        assert_eq!(result, polys);
+        assert!(
+            stats.images > PRIMES * threads(),
+            "a quick first image should widen the replay rounds: {stats:?}"
         );
     }
 
@@ -668,6 +720,7 @@ mod tests {
             &polys,
             Primes::below(1 << 31),
             None,
+            false,
             |_, basis| {
                 images += 1;
                 if images == 1 {
@@ -687,8 +740,8 @@ mod tests {
         let polys = input("x + y; x - y");
         let mut stats = ReconstructionStats::default();
         let primes = [2, 3, 5, 7].into_iter().chain(Primes::below(100000));
-        let result =
-            reconstruct_inner(&polys, primes, None, |_, _| {}, &mut stats).expect("recovery");
+        let result = reconstruct_inner(&polys, primes, None, false, |_, _| {}, &mut stats)
+            .expect("recovery");
         assert_eq!(
             result,
             groebner_basis_f4_direct(polys, true).expect("direct")
