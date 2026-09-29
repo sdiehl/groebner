@@ -62,7 +62,7 @@ Over the rationals with `BigRational` coefficients, same settings. Rows marked *
 | katsura9* |        272 | 0.23 s |
 | katsura10 |        537 | 2.03 s |
 | noon9     |       3682 | 3.92 s |
-| reimer7*  |        227 | 0.64 s |
+| reimer7   |        227 | 0.71 s |
 
 Inputs are in [`benches/data`](benches/data).
 
