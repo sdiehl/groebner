@@ -208,9 +208,12 @@ mod tests {
     use super::*;
     use polycore::crt;
 
+    // Any nonzero xorshift state works; this one is 2^64 over the golden ratio.
+    const XORSHIFT_SEED: u64 = 0x9e37_79b9_7f4a_7c15;
+
     // A deterministic stream of big integers with mixed sizes and structure.
     fn samples() -> impl Iterator<Item = BigUint> {
-        let mut s = 0x9e37_79b9_7f4a_7c15u64;
+        let mut s = XORSHIFT_SEED;
         (0..400).map(move |i| {
             let mut next = || {
                 s ^= s << 13;

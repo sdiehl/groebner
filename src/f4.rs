@@ -829,6 +829,12 @@ impl Borrow<[u32]> for Key {
 // addition that cannot carry, and a lane with its high bit set flags an overflow.
 const LANES: u128 = 0x8080_8080_8080_8080_8080_8080_8080_8080;
 
+// 2^64 over the golden ratio, the Fibonacci hashing multiplier: the top bits of a
+// product with it depend on every bit of the key.
+const GOLDEN_GAMMA: u64 = 0x9e37_79b9_7f4a_7c15;
+// The first splitmix64 finalizer multiplier, remixing a key already hashed once.
+const SPLITMIX_MULTIPLIER: u64 = 0xbf58_476d_1ce4_e5b9;
+
 fn pack(exps: &[u32]) -> Option<u128> {
     if exps.len() > 16 {
         return None;
@@ -918,8 +924,8 @@ impl PackedIds {
 
     // The top bits of the product depend on every key bit, so nearby monomials spread.
     fn start(&self, k: u128) -> usize {
-        let h = ((k as u64).wrapping_mul(0x9e37_79b9_7f4a_7c15) ^ (k >> 64) as u64)
-            .wrapping_mul(0xbf58_476d_1ce4_e5b9);
+        let h = ((k as u64).wrapping_mul(GOLDEN_GAMMA) ^ (k >> 64) as u64)
+            .wrapping_mul(SPLITMIX_MULTIPLIER);
         (h >> (self.slots.len().leading_zeros() + 1)) as usize
     }
 
@@ -1038,7 +1044,8 @@ struct Fresh {
     shards: Vec<Mutex<HashMap<u128, u32>>>,
 }
 impl Fresh {
-    const SHARDS: usize = 64;
+    const SHARD_BITS: u32 = 6;
+    const SHARDS: usize = 1 << Self::SHARD_BITS;
 
     fn new(next: usize) -> Self {
         Self {
@@ -1048,8 +1055,8 @@ impl Fresh {
     }
 
     fn intern(&self, k: u128) -> u32 {
-        let h = ((k >> 64) as u64 ^ k as u64).wrapping_mul(0x9e37_79b9_7f4a_7c15);
-        let shard = &self.shards[(h >> 58) as usize];
+        let h = ((k >> 64) as u64 ^ k as u64).wrapping_mul(GOLDEN_GAMMA);
+        let shard = &self.shards[(h >> (u64::BITS - Self::SHARD_BITS)) as usize];
         let mut map = shard.lock().unwrap_or_else(PoisonError::into_inner);
         *map.entry(k)
             .or_insert_with(|| self.next.fetch_add(1, Ordering::Relaxed))
@@ -2448,6 +2455,10 @@ fn sweep<C: Residue>(
 mod trace_tests {
     use super::*;
     use crate::PolynomialRing;
+
+    // Knuth's MMIX linear congruential multiplier, for a reproducible coefficient stream.
+    const LCG_MULTIPLIER: u64 = 6_364_136_223_846_793_005;
+
     fn input(p: u64, system: &str) -> Vec<Polynomial<Zp>> {
         PolynomialRing::with_modulus(["x", "y"], MonomialOrder::GRevLex, p)
             .expect("ring")
@@ -2510,7 +2521,7 @@ mod trace_tests {
             let ncols = 80;
             let mut seed = 42u64;
             let mut next = || {
-                seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
+                seed = seed.wrapping_mul(LCG_MULTIPLIER).wrapping_add(1);
                 Zp::new(seed, p)
             };
             let pivots: Vec<_> = (0..ncols)
