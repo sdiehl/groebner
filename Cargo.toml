@@ -33,7 +33,7 @@ path = "src/lib.rs"
 
 [dependencies]
 num-bigint = "0.4"
-polycore = "0.1.1"
+polycore = "0.1.2"
 rustc-hash = "2"
 num-rational = "0.4"
 num-traits = "0.2"
@@ -43,7 +43,7 @@ num-integer = "0.1"
 
 [features]
 default = ["parallel"]
-parallel = ["dep:rayon"]
+parallel = ["dep:rayon", "polycore/parallel"]
 parameters = ["dep:zippel-gcd"]
 
 [dev-dependencies]

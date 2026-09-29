@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Take Lehmer reconstruction and mixed radix CRT from `polycore` 0.1.2.
+
 ## 0.5.0 (2026-09-29)
 
 - Hash packed monomials from the top product bits to avoid probe clustering.

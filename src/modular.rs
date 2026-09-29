@@ -1,8 +1,9 @@
 //! Multi-modular reconstruction of a reduced rational F4 basis.
 use crate::f4::{F4Trace, PRIMES, groebner_basis_f4_direct, learn};
-use crate::{Fp, GroebnerError, Monomial, Polynomial, lehmer};
+use crate::{Fp, GroebnerError, Monomial, Polynomial};
 use num_rational::BigRational;
-use polycore::{Primes, crt, modp};
+use polycore::Primes;
+use polycore::crt::{self, MixedRadixAccumulator as Accumulator};
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 use std::collections::HashMap;
@@ -117,156 +118,6 @@ impl TraceState {
     }
 }
 
-/// Coefficients in Garner's mixed radix form, one row of digits per prime:
-/// `x = d[0] + p[0] * (d[1] + p[1] * (d[2] + ...))`. Adding a prime only takes
-/// machine word arithmetic; big integers appear when reconstructing.
-#[derive(Default)]
-struct Accumulator {
-    primes: Vec<u64>,
-    digits: Vec<Vec<u32>>,
-}
-
-impl Accumulator {
-    fn count(&self) -> usize {
-        self.primes.len()
-    }
-
-    fn add(&mut self, p: u64, values: &[u64]) {
-        assert!(p < 1 << 32, "mixed radix digits are u32");
-        // `x mod p` is the dot product of the digits with these weights.
-        let mut weights = Vec::with_capacity(self.primes.len());
-        let mut m = 1;
-        for &q in &self.primes {
-            weights.push(m as u32);
-            m = modp::mul(m, q % p, p);
-        }
-        let minv = modp::inv(m, p);
-        let max = self.primes.iter().copied().fold(p, u64::max);
-        let lazy = u128::from(max).pow(2) * (self.primes.len() as u128 + 1) < 1 << 64;
-        let digits = &self.digits;
-        let fill = |(c, out): (usize, &mut [u32])| {
-            let span = c * CHUNK..c * CHUNK + out.len();
-            let mut acc = vec![0u64; out.len()];
-            for (row, &w) in digits.iter().zip(&weights) {
-                let row = &row[span.clone()];
-                if lazy {
-                    for (a, &t) in acc.iter_mut().zip(row) {
-                        *a += u64::from(t) * u64::from(w);
-                    }
-                } else {
-                    for (a, &t) in acc.iter_mut().zip(row) {
-                        *a = modp::add(*a, modp::mul(u64::from(t), u64::from(w), p), p);
-                    }
-                }
-            }
-            for ((o, &v), a) in out.iter_mut().zip(&values[span]).zip(acc) {
-                *o = modp::mul(modp::sub(v, a % p, p), minv, p) as u32;
-            }
-        };
-        const CHUNK: usize = 4096;
-        let mut next = vec![0u32; values.len()];
-        #[cfg(feature = "parallel")]
-        next.par_chunks_mut(CHUNK).enumerate().for_each(fill);
-        #[cfg(not(feature = "parallel"))]
-        next.chunks_mut(CHUNK).enumerate().for_each(fill);
-        self.digits.push(next);
-        self.primes.push(p);
-    }
-
-    fn remap(&mut self, positions: &[Option<usize>]) {
-        for row in &mut self.digits {
-            *row = positions.iter().map(|i| i.map_or(0, |i| row[i])).collect();
-        }
-    }
-
-    fn reconstruct(&self) -> Option<Vec<BigRational>> {
-        if self.primes.is_empty() {
-            return None;
-        }
-        // Consecutive primes whose product fits a word form one big radix digit.
-        let mut radices: Vec<(u64, std::ops::Range<usize>)> = Vec::new();
-        for (j, &p) in self.primes.iter().enumerate() {
-            match radices.last_mut() {
-                Some((r, js)) if r.checked_mul(p).is_some() => {
-                    *r *= p;
-                    js.end = j + 1;
-                }
-                _ => radices.push((p, j..j + 1)),
-            }
-        }
-        let value = |i: usize| -> num_bigint::BigInt {
-            let mut x = num_bigint::BigUint::default();
-            for (r, js) in radices.iter().rev() {
-                let d = js
-                    .clone()
-                    .rev()
-                    .fold(0, |d, j| d * self.primes[j] + u64::from(self.digits[j][i]));
-                x *= *r;
-                x += d;
-            }
-            x.into()
-        };
-        let modulus: num_bigint::BigInt = radices
-            .iter()
-            .map(|(r, _)| *r)
-            .product::<num_bigint::BigUint>()
-            .into();
-        let n = self.digits[0].len();
-        // Probe spread-out coefficients before reconstructing a potentially huge basis.
-        // Checking only the final coefficient often checks a trivial zero or one.
-        // These probes are a heuristic: an unprobed large coefficient can still
-        // make the full reconstruction fail again on the next batch.
-        if modulus <= num_bigint::BigInt::from(1u32) {
-            return None;
-        }
-        let bound = (&modulus / 2u32).sqrt();
-        let probes = 64.min(n);
-        for i in 0..probes {
-            let index = i * (n - 1) / probes.saturating_sub(1).max(1);
-            lehmer::wang(&value(index), &modulus, &bound)?;
-        }
-        // A failure anywhere fails the attempt, so the other chunks stop early.
-        let failed = std::sync::atomic::AtomicBool::new(false);
-        let run = |c: usize| -> Option<Vec<BigRational>> {
-            // Coefficients of one polynomial mostly share denominators. Once `d` holds
-            // theirs, `x * d` is a small integer and needs no half extended gcd. Both
-            // parts are within the Wang bound, so this is the fraction Wang would find.
-            let mut d = num_bigint::BigInt::from(1u32);
-            (c * 256..n.min(c * 256 + 256))
-                .map(|i| {
-                    if failed.load(std::sync::atomic::Ordering::Relaxed) {
-                        return None;
-                    }
-                    let x = value(i);
-                    let y = crt::symmetric(&(&x * &d), &modulus);
-                    if y.magnitude() <= bound.magnitude() {
-                        return Some(lehmer::fraction(y, d.magnitude()));
-                    }
-                    let Some(c) = lehmer::wang(&x, &modulus, &bound) else {
-                        failed.store(true, std::sync::atomic::Ordering::Relaxed);
-                        return None;
-                    };
-                    let g = lehmer::gcd(d.magnitude(), c.denom().magnitude());
-                    let lcm = &d / num_bigint::BigInt::from(g) * c.denom();
-                    d = if lcm <= bound { lcm } else { c.denom().clone() };
-                    Some(c)
-                })
-                .collect()
-        };
-        #[cfg(feature = "parallel")]
-        return (0..n.div_ceil(256))
-            .into_par_iter()
-            .map(run)
-            .collect::<Option<Vec<_>>>()
-            .map(|v| v.concat());
-        #[cfg(not(feature = "parallel"))]
-        (0..n.div_ceil(256))
-            .map(run)
-            .collect::<Option<Vec<_>>>()
-            .map(|v| v.concat())
-    }
-}
-
 struct Group {
     layout: Layout,
     primary: Accumulator,
@@ -277,13 +128,13 @@ impl Group {
     fn new(size: usize) -> Self {
         Self {
             layout: vec![Vec::new(); size],
-            primary: Accumulator::default(),
+            primary: Accumulator::new(0),
             recovery: None,
             recovery_limit: 32,
         }
     }
 
-    fn add(&mut self, p: u64, basis: &[Polynomial<Fp>]) -> bool {
+    fn add(&mut self, p: u64, basis: &[Polynomial<Fp>]) -> Result<bool, GroebnerError> {
         // Extend support without losing earlier images: every newly encountered
         // coefficient was zero modulo all preceding primes in this group.
         let mut positions = Vec::new();
@@ -331,18 +182,27 @@ impl Group {
         let restart = self
             .recovery
             .as_ref()
-            .is_some_and(|a| a.count() >= self.recovery_limit);
+            .is_some_and(|a| a.image_count() >= self.recovery_limit);
         if restart {
             self.recovery_limit = self.recovery_limit.saturating_mul(2);
-            self.recovery = Some(Accumulator::default());
-        } else if self.recovery.is_none() && self.primary.count() >= 32 {
-            self.recovery = Some(Accumulator::default());
+            self.recovery = Some(Accumulator::new(values.len()));
+        } else if self.recovery.is_none() && self.primary.image_count() >= 32 {
+            self.recovery = Some(Accumulator::new(values.len()));
         }
-        self.primary.add(p, &values);
+        // Primes come from one descending sequence, so they are distinct words.
+        let merge = |acc: &mut Accumulator| {
+            acc.add(p, &values)
+                .map_err(|_| GroebnerError::ReconstructionFailed)
+        };
+        merge(&mut self.primary)?;
         if let Some(recovery) = &mut self.recovery {
-            recovery.add(p, &values);
+            merge(recovery)?;
         }
-        restart
+        Ok(restart)
+    }
+
+    fn width(&self) -> usize {
+        self.layout.iter().map(Vec::len).sum()
     }
 
     fn decode(
@@ -370,16 +230,17 @@ fn add_image(
     p: u64,
     basis: &[Polynomial<Fp>],
     #[cfg(test)] stats: &mut ReconstructionStats,
-) {
+) -> Result<(), GroebnerError> {
     let group = groups
         .entry(heads(basis))
         .or_insert_with(|| Group::new(basis.len()));
-    if group.add(p, basis) {
+    if group.add(p, basis)? {
         #[cfg(test)]
         {
             stats.recovery_restarts += 1;
         }
     }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -432,7 +293,7 @@ fn reconstruct_inner(
     loop {
         let count = groups
             .values()
-            .map(|g| g.primary.count())
+            .map(|g| g.primary.image_count())
             .max()
             .unwrap_or(0);
         let ps: Vec<_> = primes.by_ref().take(schedule(count, batch)).collect();
@@ -471,7 +332,7 @@ fn reconstruct_inner(
                 &basis,
                 #[cfg(test)]
                 stats,
-            );
+            )?;
         }
         let last = (ps.len() > 1).then(|| ps.len() - 1);
         for (i, (p, image)) in ps.into_iter().zip(images).enumerate() {
@@ -499,10 +360,10 @@ fn reconstruct_inner(
                 &basis,
                 #[cfg(test)]
                 stats,
-            );
+            )?;
         }
         let attempt = |groups: &HashMap<Vec<Monomial>, Group>| {
-            let (key, group) = groups.iter().max_by_key(|(_, g)| g.primary.count())?;
+            let (key, group) = groups.iter().max_by_key(|(_, g)| g.primary.image_count())?;
             let candidates: Vec<_> = std::iter::once(&group.primary)
                 .chain(group.recovery.iter())
                 .filter_map(Accumulator::reconstruct)
@@ -522,7 +383,7 @@ fn reconstruct_inner(
                 &basis,
                 #[cfg(test)]
                 stats,
-            );
+            )?;
             found = attempt(&groups);
         }
         let Some((key, candidates)) = found else {
@@ -605,7 +466,7 @@ fn reconstruct_inner(
                         .get_mut(&key)
                         .ok_or(GroebnerError::ReconstructionFailed)?;
                     if group.recovery.is_none() {
-                        group.recovery = Some(Accumulator::default());
+                        group.recovery = Some(Accumulator::new(group.width()));
                     }
                 } else if stage == 0 && trace.observe(&heads(&basis), learned) {
                     #[cfg(test)]
@@ -623,7 +484,7 @@ fn reconstruct_inner(
                     &basis,
                     #[cfg(test)]
                     stats,
-                );
+                )?;
                 if !agrees {
                     break;
                 }
