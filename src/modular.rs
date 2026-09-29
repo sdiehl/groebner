@@ -1,15 +1,14 @@
 //! Multi-modular reconstruction of a reduced rational F4 basis.
 use crate::f4::{F4Trace, PRIMES, groebner_basis_f4_direct, learn};
-use crate::{Fp, GroebnerError, Monomial, Polynomial};
+use crate::{Fp, GroebnerError, Monomial, Polynomial, par};
 use num_rational::BigRational;
 use polycore::Primes;
 use polycore::crt::{self, MixedRadixAccumulator as Accumulator};
-#[cfg(feature = "parallel")]
-use rayon::prelude::*;
 use std::collections::HashMap;
 
 type Layout = Vec<Vec<Monomial>>;
-type Image = Option<(Vec<Polynomial<Fp>>, Option<F4Trace>)>;
+// An image, and the trace learned computing it, if any.
+type Learned = (Vec<Polynomial<Fp>>, Option<F4Trace>);
 // A basis modulo the prime it was computed at.
 type Residues = (u64, Vec<Polynomial<Fp>>);
 
@@ -52,7 +51,6 @@ pub fn groebner_basis_f4_rational_with(
         options.batch,
         true,
         |_, _| {},
-        #[cfg(test)]
         &mut ReconstructionStats::default(),
     )?;
     if certify && !certify_basis(&input, &basis)? {
@@ -83,7 +81,7 @@ fn certify_basis(
     Ok(true)
 }
 
-#[cfg(test)]
+// Counts of reconstruction events, which tests check.
 #[derive(Default, Debug)]
 struct ReconstructionStats {
     images: usize,
@@ -226,24 +224,6 @@ fn heads(basis: &[Polynomial<Fp>]) -> Vec<Monomial> {
     basis.iter().filter_map(|f| f.lm().cloned()).collect()
 }
 
-fn add_image(
-    groups: &mut HashMap<Vec<Monomial>, Group>,
-    p: u64,
-    basis: &[Polynomial<Fp>],
-    #[cfg(test)] stats: &mut ReconstructionStats,
-) -> Result<(), GroebnerError> {
-    let group = groups
-        .entry(heads(basis))
-        .or_insert_with(|| Group::new(basis.len()));
-    if group.add(p, basis)? {
-        #[cfg(test)]
-        {
-            stats.recovery_restarts += 1;
-        }
-    }
-    Ok(())
-}
-
 #[cfg(test)]
 fn reconstruct(
     input: &[Polynomial<BigRational>],
@@ -256,7 +236,6 @@ fn reconstruct(
         None,
         false,
         inspect_image,
-        #[cfg(test)]
         &mut ReconstructionStats::default(),
     )
 }
@@ -279,16 +258,9 @@ fn schedule(count: usize, batch: Option<usize>, wide: bool) -> usize {
     match (count, batch) {
         (0, _) => 1,
         (_, Some(batch)) => batch.max(1),
-        _ if wide => narrow.max(PRIMES * threads()),
+        _ if wide => narrow.max(PRIMES * par::threads()),
         _ => narrow,
     }
-}
-
-fn threads() -> usize {
-    #[cfg(feature = "parallel")]
-    return rayon::current_num_threads();
-    #[cfg(not(feature = "parallel"))]
-    1
 }
 
 fn reconstruct_inner(
@@ -296,225 +268,263 @@ fn reconstruct_inner(
     primes: impl IntoIterator<Item = u64>,
     batch: Option<usize>,
     widen: bool,
-    mut inspect_image: impl FnMut(u64, &mut Vec<Polynomial<Fp>>),
-    #[cfg(test)] stats: &mut ReconstructionStats,
+    inspect_image: impl FnMut(u64, &mut Vec<Polynomial<Fp>>),
+    stats: &mut ReconstructionStats,
 ) -> Result<Vec<Polynomial<BigRational>>, GroebnerError> {
-    let mut primes = primes.into_iter();
-    let mut groups: HashMap<Vec<Monomial>, Group> = HashMap::new();
-    let mut trace = TraceState::default();
-    // The full check needs no candidate until the comparison, so it runs at a
-    // reserved prime alongside the first learned image, which leaves most of the
-    // pool idle.
-    let mut check = None;
-    // The newest replayed image is held out of the accumulators as the next
-    // candidate's agreement check, which saves replaying a fresh prime.
-    let mut spare: Option<Residues> = None;
+    let mut run = Reconstruction {
+        input,
+        primes: primes.into_iter(),
+        groups: HashMap::new(),
+        trace: TraceState::default(),
+        check: None,
+        spare: None,
+        inspect_image,
+        stats,
+    };
     let mut wide = false;
     loop {
-        let count = groups
-            .values()
-            .map(|g| g.primary.image_count())
-            .max()
-            .unwrap_or(0);
-        let ps: Vec<_> = primes.by_ref().take(schedule(count, batch, wide)).collect();
-        let start = std::time::Instant::now();
+        let count = run.count();
+        let ps: Vec<_> = run
+            .primes
+            .by_ref()
+            .take(schedule(count, batch, wide))
+            .collect();
         if ps.is_empty() {
             return Err(GroebnerError::ReconstructionFailed);
         }
-
-        let chunk = |ps: &[u64]| chunk_images(input, trace.current.as_ref(), ps);
-        let reserved = (count == 0).then(|| {
-            primes
-                .by_ref()
-                .find_map(|p| Some((p, map_input(input, p)?)))
-        });
-        #[cfg(feature = "parallel")]
-        let (images, reserved) = rayon::join(
-            || {
-                ps.par_chunks(PRIMES)
-                    .flat_map_iter(chunk)
-                    .collect::<Vec<_>>()
-            },
-            || reserved.flatten().map(full_check).transpose(),
-        );
-        #[cfg(not(feature = "parallel"))]
-        let (images, reserved) = (
-            ps.chunks(PRIMES).flat_map(chunk).collect::<Vec<_>>(),
-            reserved.flatten().map(full_check).transpose(),
-        );
-        if let Some(reserved) = reserved? {
-            check = Some(reserved);
-        }
+        let start = std::time::Instant::now();
+        run.round(&ps, count == 0)?;
         if count == 0 {
             wide = widen && start.elapsed() < WIDE_LEARN;
         }
-
-        if let Some((p, basis)) = spare.take() {
-            add_image(
-                &mut groups,
-                p,
-                &basis,
-                #[cfg(test)]
-                stats,
-            )?;
-        }
-        let last = (ps.len() > 1).then(|| ps.len() - 1);
-        for (i, (p, image)) in ps.into_iter().zip(images).enumerate() {
-            let Some((mut basis, learned)) = image? else {
-                continue;
-            };
-            #[cfg(test)]
-            {
-                stats.images += 1;
-            }
-            inspect_image(p, &mut basis);
-            if trace.observe(&heads(&basis), learned) {
-                #[cfg(test)]
-                {
-                    stats.trace_replacements += 1;
-                }
-            }
-            if Some(i) == last {
-                spare = Some((p, basis));
-                continue;
-            }
-            add_image(
-                &mut groups,
-                p,
-                &basis,
-                #[cfg(test)]
-                stats,
-            )?;
-        }
-        let attempt = |groups: &HashMap<Vec<Monomial>, Group>| {
-            let (key, group) = groups.iter().max_by_key(|(_, g)| g.primary.image_count())?;
-            let candidates: Vec<_> = std::iter::once(&group.primary)
-                .chain(group.recovery.iter())
-                .filter_map(Accumulator::reconstruct)
-                .map(|values| group.decode(values, &input[0]))
-                .collect();
-            Some((key.clone(), candidates))
-        };
-        let mut found = attempt(&groups);
-        // Without the spare's prime reconstruction may fall just short. Failed
-        // attempts are cheap, so retry with it rather than replay another batch.
-        if found.as_ref().is_none_or(|(_, c)| c.is_empty())
-            && let Some((p, basis)) = spare.take()
-        {
-            add_image(
-                &mut groups,
-                p,
-                &basis,
-                #[cfg(test)]
-                stats,
-            )?;
-            found = attempt(&groups);
-        }
-        let Some((key, candidates)) = found else {
+        let Some((key, candidates)) = run.candidates()? else {
             continue;
         };
-
         for candidate in candidates {
-            // One cheap agreement image, followed by one FULL independent F4 run.
-            // Request them individually: a candidate never triggers a whole batch.
-            let reduce = |p| reduce_candidate(&candidate, p);
-            for stage in 0..2 {
-                let reserved = if stage == 0 {
-                    spare.take_if(|(_, basis)| heads(basis) == key)
-                } else {
-                    check.take()
-                };
-                let reserved = reserved.and_then(|(p, basis)| {
-                    Some((p, map_input(input, p)?, reduce(p)?, Some(basis)))
-                });
-                let Some((p, mapped, reduced, full)) = reserved.or_else(|| {
-                    primes
-                        .by_ref()
-                        .find_map(|p| Some((p, map_input(input, p)?, reduce(p)?, None)))
-                }) else {
-                    return Err(GroebnerError::ReconstructionFailed);
-                };
-
-                let (basis, learned) = if let Some(basis) = full {
-                    (basis, None)
-                } else if stage == 0 {
-                    if let Some(basis) = trace
-                        .current
-                        .as_ref()
-                        .and_then(|t| t.replay(mapped.clone()))
-                    {
-                        (basis, None)
-                    } else {
-                        let (basis, learned) = learn(mapped.clone())?;
-                        (basis, Some(learned))
-                    }
-                } else {
-                    // The untraced run is faster and shares nothing with the trace.
-                    (groebner_basis_f4_direct(mapped.clone(), true)?, None)
-                };
-                #[cfg(test)]
-                {
-                    stats.images += 1;
-                }
-                let agrees = basis == reduced;
-                if !agrees {
-                    // Learn a trace from a failed full check only to diagnose it.
-                    let learned = match learned {
-                        None if stage == 1 => Some(learn(mapped.clone())?.1),
-                        learned => learned,
-                    };
-                    #[cfg(test)]
-                    {
-                        stats.validation_failures += 1;
-                    }
-                    // Diagnose a trace only against a full result. A bad rational
-                    // guess alone is not evidence that its trace is broken.
-                    if let Some(learned) = learned
-                        && trace
-                            .current
-                            .as_ref()
-                            .and_then(|t| t.replay(mapped))
-                            .as_ref()
-                            != Some(&basis)
-                    {
-                        trace.current = Some(learned);
-                        trace.failed_leading = None;
-                        #[cfg(test)]
-                        {
-                            stats.trace_replacements += 1;
-                        }
-                    }
-                    // Recovery can discard poisoned tails, while the primary
-                    // accumulator continues to retain every matching image.
-                    let group = groups
-                        .get_mut(&key)
-                        .ok_or(GroebnerError::ReconstructionFailed)?;
-                    if group.recovery.is_none() {
-                        group.recovery = Some(Accumulator::new(group.width()));
-                    }
-                } else if stage == 0 && trace.observe(&heads(&basis), learned) {
-                    #[cfg(test)]
-                    {
-                        stats.trace_replacements += 1;
-                    }
-                }
-
-                if agrees && stage == 1 {
-                    return Ok(candidate);
-                }
-                add_image(
-                    &mut groups,
-                    p,
-                    &basis,
-                    #[cfg(test)]
-                    stats,
-                )?;
-                if !agrees {
-                    break;
-                }
+            if run.validate(&key, &candidate)? {
+                return Ok(candidate);
             }
         }
     }
+}
+
+// Leading monomials of a group, and the candidates reconstructed from it.
+type Candidates = (Vec<Monomial>, Vec<Vec<Polynomial<BigRational>>>);
+
+struct Reconstruction<'a, P, I> {
+    input: &'a [Polynomial<BigRational>],
+    primes: P,
+    groups: HashMap<Vec<Monomial>, Group>,
+    trace: TraceState,
+    // The full check needs no candidate until the comparison, so it runs at a
+    // reserved prime alongside the first learned image, which leaves most of the
+    // pool idle.
+    check: Option<Residues>,
+    // The newest replayed image is held out of the accumulators as the next
+    // candidate's agreement check, which saves replaying a fresh prime.
+    spare: Option<Residues>,
+    inspect_image: I,
+    stats: &'a mut ReconstructionStats,
+}
+
+impl<P, I> Reconstruction<'_, P, I>
+where
+    P: Iterator<Item = u64>,
+    I: FnMut(u64, &mut Vec<Polynomial<Fp>>),
+{
+    fn count(&self) -> usize {
+        self.groups
+            .values()
+            .map(|g| g.primary.image_count())
+            .max()
+            .unwrap_or(0)
+    }
+
+    // Accumulate the images at `ps`, holding the newest back as the spare. The first
+    // round also runs the full check.
+    fn round(&mut self, ps: &[u64], first: bool) -> Result<(), GroebnerError> {
+        let (input, trace) = (self.input, self.trace.current.as_ref());
+        let reserved = first
+            .then(|| {
+                self.primes
+                    .by_ref()
+                    .find_map(|p| Some((p, map_input(input, p)?)))
+            })
+            .flatten();
+        let (images, reserved) = par::join(
+            || par::flat_map_chunks(ps, PRIMES, |ps| chunk_images(input, trace, ps)),
+            || reserved.map(full_check).transpose(),
+        );
+        if let Some(reserved) = reserved? {
+            self.check = Some(reserved);
+        }
+        if let Some((p, basis)) = self.spare.take() {
+            self.add(p, &basis)?;
+        }
+        let last = (ps.len() > 1).then(|| ps.len() - 1);
+        for (i, (&p, image)) in ps.iter().zip(images).enumerate() {
+            let Some((mut basis, learned)) = image? else {
+                continue;
+            };
+            self.stats.images += 1;
+            (self.inspect_image)(p, &mut basis);
+            self.observe(&basis, learned);
+            if Some(i) == last {
+                self.spare = Some((p, basis));
+                continue;
+            }
+            self.add(p, &basis)?;
+        }
+        Ok(())
+    }
+
+    fn add(&mut self, p: u64, basis: &[Polynomial<Fp>]) -> Result<(), GroebnerError> {
+        let group = self
+            .groups
+            .entry(heads(basis))
+            .or_insert_with(|| Group::new(basis.len()));
+        if group.add(p, basis)? {
+            self.stats.recovery_restarts += 1;
+        }
+        Ok(())
+    }
+
+    fn observe(&mut self, basis: &[Polynomial<Fp>], learned: Option<F4Trace>) {
+        if self.trace.observe(&heads(basis), learned) {
+            self.stats.trace_replacements += 1;
+        }
+    }
+
+    fn candidates(&mut self) -> Result<Option<Candidates>, GroebnerError> {
+        let mut found = self.attempt();
+        // Without the spare's prime reconstruction may fall just short. Failed
+        // attempts are cheap, so retry with it rather than replay another batch.
+        if found.as_ref().is_none_or(|(_, c)| c.is_empty())
+            && let Some((p, basis)) = self.spare.take()
+        {
+            self.add(p, &basis)?;
+            found = self.attempt();
+        }
+        Ok(found)
+    }
+
+    fn attempt(&self) -> Option<Candidates> {
+        let (key, group) = self
+            .groups
+            .iter()
+            .max_by_key(|(_, g)| g.primary.image_count())?;
+        let candidates: Vec<_> = std::iter::once(&group.primary)
+            .chain(group.recovery.iter())
+            .filter_map(Accumulator::reconstruct)
+            .map(|values| group.decode(values, &self.input[0]))
+            .collect();
+        Some((key.clone(), candidates))
+    }
+
+    // One cheap agreement image, followed by one FULL independent F4 run. Request them
+    // individually: a candidate never triggers a whole batch.
+    fn validate(
+        &mut self,
+        key: &[Monomial],
+        candidate: &[Polynomial<BigRational>],
+    ) -> Result<bool, GroebnerError> {
+        Ok(self.agrees(false, key, candidate)? && self.agrees(true, key, candidate)?)
+    }
+
+    // Whether the candidate matches the image at a new prime, replayed or, with `full`,
+    // computed without the trace. The image joins the accumulators unless it accepts.
+    fn agrees(
+        &mut self,
+        full: bool,
+        key: &[Monomial],
+        candidate: &[Polynomial<BigRational>],
+    ) -> Result<bool, GroebnerError> {
+        let input = self.input;
+        let reduce = |p| reduce_candidate(candidate, p);
+        let reserved = if full {
+            self.check.take()
+        } else {
+            self.spare.take_if(|(_, basis)| heads(basis) == key)
+        };
+        let reserved = reserved
+            .and_then(|(p, basis)| Some((p, map_input(input, p)?, reduce(p)?, Some(basis))));
+        let Some((p, mapped, reduced, known)) = reserved.or_else(|| {
+            self.primes
+                .by_ref()
+                .find_map(|p| Some((p, map_input(input, p)?, reduce(p)?, None)))
+        }) else {
+            return Err(GroebnerError::ReconstructionFailed);
+        };
+        let (basis, learned) = match known {
+            Some(basis) => (basis, None),
+            // The untraced run is faster and shares nothing with the trace.
+            None if full => (groebner_basis_f4_direct(mapped.clone(), true)?, None),
+            None => replay_or_learn(self.trace.current.as_ref(), mapped.clone())?,
+        };
+        self.stats.images += 1;
+        let agrees = basis == reduced;
+        if agrees && full {
+            return Ok(true);
+        }
+        if agrees {
+            self.observe(&basis, learned);
+        } else {
+            // Learn a trace from a failed full check only to diagnose it.
+            let learned = match learned {
+                None if full => Some(learn(mapped.clone())?.1),
+                learned => learned,
+            };
+            self.reject(key, mapped, &basis, learned)?;
+        }
+        self.add(p, &basis)?;
+        Ok(agrees)
+    }
+
+    // Diagnose a trace only against a full result: a bad rational guess alone is not
+    // evidence that its trace is broken. Recovery can then discard poisoned tails,
+    // while the primary accumulator continues to retain every matching image.
+    fn reject(
+        &mut self,
+        key: &[Monomial],
+        mapped: Vec<Polynomial<Fp>>,
+        basis: &[Polynomial<Fp>],
+        learned: Option<F4Trace>,
+    ) -> Result<(), GroebnerError> {
+        self.stats.validation_failures += 1;
+        if let Some(learned) = learned
+            && self
+                .trace
+                .current
+                .as_ref()
+                .and_then(|t| t.replay(mapped))
+                .as_deref()
+                != Some(basis)
+        {
+            self.trace.current = Some(learned);
+            self.trace.failed_leading = None;
+            self.stats.trace_replacements += 1;
+        }
+        let group = self
+            .groups
+            .get_mut(key)
+            .ok_or(GroebnerError::ReconstructionFailed)?;
+        let width = group.width();
+        group
+            .recovery
+            .get_or_insert_with(|| Accumulator::new(width));
+        Ok(())
+    }
+}
+
+// The image of mapped inputs by replaying the trace, or by learning a new one.
+fn replay_or_learn(
+    trace: Option<&F4Trace>,
+    mapped: Vec<Polynomial<Fp>>,
+) -> Result<Learned, GroebnerError> {
+    if let Some(basis) = trace.and_then(|t| t.replay(mapped.clone())) {
+        return Ok((basis, None));
+    }
+    learn(mapped).map(|(basis, trace)| (basis, Some(trace)))
 }
 
 // A full chunk of primes replays in one pass; the rest go one at a time.
@@ -522,19 +532,7 @@ fn chunk_images(
     input: &[Polynomial<BigRational>],
     trace: Option<&F4Trace>,
     ps: &[u64],
-) -> Vec<Result<Image, GroebnerError>> {
-    let image = |&p: &u64| -> Result<Image, GroebnerError> {
-        map_input(input, p)
-            .map(|fs| {
-                if let Some(t) = trace
-                    && let Some(basis) = t.replay(fs.clone())
-                {
-                    return Ok((basis, None));
-                }
-                learn(fs).map(|(basis, trace)| (basis, Some(trace)))
-            })
-            .transpose()
-    };
+) -> Vec<Result<Option<Learned>, GroebnerError>> {
     let lanes = <[u64; PRIMES]>::try_from(ps)
         .ok()
         .zip(trace)
@@ -547,7 +545,14 @@ fn chunk_images(
         });
     match lanes {
         Some(bases) => bases.into_iter().map(|b| Ok(Some((b, None)))).collect(),
-        None => ps.iter().map(image).collect(),
+        None => ps
+            .iter()
+            .map(|&p| {
+                map_input(input, p)
+                    .map(|fs| replay_or_learn(trace, fs))
+                    .transpose()
+            })
+            .collect(),
     }
 }
 
@@ -556,11 +561,9 @@ fn full_check((p, mapped): (u64, Vec<Polynomial<Fp>>)) -> Result<Residues, Groeb
 }
 
 fn reduce_candidate(candidate: &[Polynomial<BigRational>], p: u64) -> Option<Vec<Polynomial<Fp>>> {
-    let reduce = |f: &Polynomial<BigRational>| f.try_map(|c| Fp::from_rational(c, p));
-    #[cfg(feature = "parallel")]
-    return candidate.par_iter().map(reduce).collect();
-    #[cfg(not(feature = "parallel"))]
-    candidate.iter().map(reduce).collect()
+    par::map(candidate, |f| f.try_map(|c| Fp::from_rational(c, p)))
+        .into_iter()
+        .collect()
 }
 
 fn map_input(input: &[Polynomial<BigRational>], p: u64) -> Option<Vec<Polynomial<Fp>>> {
@@ -705,7 +708,7 @@ mod tests {
         .expect("reconstruction");
         assert_eq!(result, polys);
         assert!(
-            stats.images > PRIMES * threads(),
+            stats.images > PRIMES * par::threads(),
             "a quick first image should widen the replay rounds: {stats:?}"
         );
     }
