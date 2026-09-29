@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.5.0 (2026-09-29)
 
 - Hash packed monomials from the top product bits to avoid probe clustering.
 - Sweep four random combinations per pass in the Monte Carlo echelon.
