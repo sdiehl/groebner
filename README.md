@@ -1,6 +1,6 @@
 # Gröbner Basis
 
-An optimized Rust implementation of the F4 and Buchberger algorithms for computing Groebner bases. It achieves SOTA performance on standard benchmarks over prime fields and the rationals, using parallel sparse linear algebra, SIMD row reduction, and multi-modular rational reconstruction.
+An optimized Rust implementation of the F4 and Buchberger algorithms for computing Gröbner bases. It achieves SOTA performance on standard benchmarks over prime fields and the rationals, using parallel sparse linear algebra, SIMD row reduction, and multi-modular rational reconstruction.
 
 Examples:
 
@@ -13,7 +13,7 @@ Examples:
 cargo add groebner
 ```
 
-Parse polynomials with named variables under a monomial order and compute a reduced Groebner basis with F4 (over `PrimeField<P>`, `Zp` or `BigRational`):
+Parse polynomials with named variables under a monomial order and compute a reduced Gröbner basis with F4 (over `PrimeField<P>`, `Zp` or `BigRational`):
 
 ```rust
 use groebner::{groebner_basis_f4, MonomialOrder, PolynomialRing, PrimeField};
@@ -73,7 +73,7 @@ cargo test
 cargo bench
 ```
 
-The [test suite](SUITE.md) is the full list of known Groebner bases for a variety of large multivariate polynomial systems from several textbooks and some trusted Mathematica generated corpus. Both the Rust algo implementations have to correctly produce the same textbook outputs and Mathematica for all inputs, up to re-ordering.
+The [test suite](SUITE.md) is the full list of known Gröbner bases for a variety of large multivariate polynomial systems from several textbooks and some trusted Mathematica generated corpus. Both the Rust algo implementations have to correctly produce the same textbook outputs and Mathematica for all inputs, up to re-ordering.
 
 ## References
 
