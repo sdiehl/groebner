@@ -48,6 +48,7 @@
 struct ReadmeDoctests;
 
 pub mod f4;
+mod lehmer;
 pub mod modular;
 pub use modular::groebner_basis_f4_rational;
 pub mod fglm;

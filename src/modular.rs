@@ -1,9 +1,7 @@
 //! Multi-modular reconstruction of a reduced rational F4 basis.
 use crate::f4::{F4Trace, PRIMES, groebner_basis_f4_direct, learn};
-use crate::{Fp, GroebnerError, Monomial, Polynomial};
-use num_integer::Integer;
+use crate::{Fp, GroebnerError, Monomial, Polynomial, lehmer};
 use num_rational::BigRational;
-use num_traits::Signed;
 use polycore::{Primes, crt, modp};
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
@@ -192,13 +190,15 @@ impl Accumulator {
         // Checking only the final coefficient often checks a trivial zero or one.
         // These probes are a heuristic: an unprobed large coefficient can still
         // make the full reconstruction fail again on the next batch.
-        let context = crt::WangContext::new(&modulus)?;
+        if modulus <= num_bigint::BigInt::from(1u32) {
+            return None;
+        }
+        let bound = (&modulus / 2u32).sqrt();
         let probes = 8.min(n);
         for i in 0..probes {
             let index = i * (n - 1) / probes.saturating_sub(1).max(1);
-            context.reconstruct(&value(index))?;
+            lehmer::wang(&value(index), &modulus, &bound)?;
         }
-        let bound = (&modulus / 2u32).sqrt();
         let run = |c: usize| -> Option<Vec<BigRational>> {
             // Coefficients of one polynomial mostly share denominators. Once `d` holds
             // theirs, `x * d` is a small integer and needs no half extended gcd. Both
@@ -208,11 +208,12 @@ impl Accumulator {
                 .map(|i| {
                     let x = value(i);
                     let y = crt::symmetric(&(&x * &d), &modulus);
-                    if y.abs() <= bound {
-                        return Some(BigRational::new(y, d.clone()));
+                    if y.magnitude() <= bound.magnitude() {
+                        return Some(lehmer::fraction(y, d.magnitude()));
                     }
-                    let c = context.reconstruct(&x)?;
-                    let lcm = d.lcm(c.denom());
+                    let c = lehmer::wang(&x, &modulus, &bound)?;
+                    let g = lehmer::gcd(d.magnitude(), c.denom().magnitude());
+                    let lcm = &d / num_bigint::BigInt::from(g) * c.denom();
                     d = if lcm <= bound { lcm } else { c.denom().clone() };
                     Some(c)
                 })
