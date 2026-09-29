@@ -44,10 +44,10 @@ Reduced basis with `groebner_basis_f4` over GF(32003) in GRevLex, on Apple M5 si
 | eco13     |       1465 | 1.13 s |
 | eco14     |       2852 | 7.01 s |
 | henrion7  |        415 | 0.32 s |
-| henrion8  |       2344 | 54.7 s |
+| henrion8  |       2344 | 38.9 s |
 | katsura11 |       1050 | 0.62 s |
 | katsura12 |       2091 | 3.50 s |
-| katsura13 |       4140 | 23.5 s |
+| katsura13 |       4140 | 15.8 s |
 | noon9     |       3682 | 1.80 s |
 | noon10    |      10273 | 12.6 s |
 | reimer7   |        227 | 0.14 s |

@@ -1326,8 +1326,9 @@ impl<F: F4Field> State<F> {
         // monomial as the next level.
         while !level.is_empty() {
             let fresh = Fresh::new(table.monomials.len());
-            let found = map_rows(
+            let found = map_weighted(
                 &level,
+                |(i, _, _)| self.basis[*i].len(),
                 // Each worker caches the fresh ids it has seen, sparing the shard locks.
                 HashMap::<u128, u32>::default,
                 |(i, mult, _), seen| {
@@ -1818,6 +1819,41 @@ fn map_rows<T: Sync, R: Send, S>(
     map_blocks(rows, 32, scratch, f)
 }
 
+// `map_rows` in runs of about equal total `weight`, as rows of similar cost cluster
+// and equal counts would leave one worker a heavy run.
+fn map_weighted<T: Sync, R: Send, S>(
+    rows: &[T],
+    weight: impl Fn(&T) -> usize,
+    scratch: impl Fn() -> S + Sync,
+    f: impl Fn(&T, &mut S) -> R + Sync,
+) -> Vec<R> {
+    #[cfg(feature = "parallel")]
+    if rows.len() >= 64 {
+        let total: usize = rows.iter().map(&weight).sum();
+        let target = total.div_ceil(16 * rayon::current_num_threads()).max(1);
+        let (mut runs, mut start, mut sum) = (Vec::new(), 0, 0);
+        for (i, r) in rows.iter().enumerate() {
+            sum += weight(r);
+            if sum >= target {
+                runs.push(&rows[start..=i]);
+                (start, sum) = (i + 1, 0);
+            }
+        }
+        runs.push(&rows[start..]);
+        return runs
+            .par_iter()
+            .with_max_len(1)
+            .flat_map_iter(|run| {
+                let mut s = scratch();
+                run.iter().map(|r| f(r, &mut s)).collect::<Vec<_>>()
+            })
+            .collect();
+    }
+    #[cfg(not(feature = "parallel"))]
+    let _ = weight;
+    map_rows(rows, scratch, f)
+}
+
 // `map_rows` in blocks of `size` rows, split only when there are at least two.
 fn map_blocks<T: Sync, R: Send, S>(
     rows: &[T],
@@ -2048,12 +2084,44 @@ fn echelon_random<C: Residue>(
     let order = sorted(rows);
     let nblocks = (order.len() as f64 / 3.0).sqrt() as usize + 1;
     let blocks: Vec<&[usize]> = order.chunks(order.len().div_ceil(nblocks).max(1)).collect();
-    let zeros = 40u32.div_ceil(p.ilog2()).max(2);
-    let block = |(b, block): (usize, &&[usize]), buf: &mut Vec<u64>| {
-        // Unreduced sums only when the sweep can also defer every reduction.
-        let lazy = p < (1 << 31) && fits(ncols + block.len(), p);
+    let zeros = 40u32.div_ceil(p.ilog2()).max(2) as usize;
+    let block = |(b, block): (usize, &&[usize]),
+                 (buf, lanes): &mut (Vec<u64>, Vec<[u64; COMBOS]>)| {
         let mut rng = Rng::new(b as u64);
         let (mut found, mut run) = (0, 0);
+        // Several combinations share each pass over the pivots when every cell can defer
+        // its reductions, and are claimed in turn as if swept one after another.
+        if p < (1 << 31) && fits(ncols + block.len(), p) {
+            lanes.resize(ncols, [0; COMBOS]);
+            while found < block.len() && run < zeros {
+                let (mut lo, mut hi) = (usize::MAX, 0);
+                for &i in *block {
+                    let m: [u64; COMBOS] = std::array::from_fn(|_| rng.nonzero(p));
+                    let (cols, coefs) = (&rows[i].columns, &rows[i].coefficients);
+                    for (&c, &v) in cols.iter().zip(coefs) {
+                        let cell = &mut lanes[c as usize];
+                        for l in 0..COMBOS {
+                            cell[l] += m[l] * v.into();
+                        }
+                    }
+                    let (l, h) = span(cols);
+                    (lo, hi) = (lo.min(l), hi.max(h));
+                }
+                for r in sweep_combos(lanes, (lo, hi), &claimed, p) {
+                    if found == block.len() || run == zeros {
+                        break;
+                    }
+                    if claim(&kernel, &claimed, b, r, buf) {
+                        (found, run) = (found + 1, 0);
+                    } else {
+                        run += 1;
+                    }
+                }
+            }
+            return;
+        }
+        // Unreduced sums only when the sweep can also defer every reduction.
+        let lazy = p < (1 << 31) && fits(ncols + block.len(), p);
         while found < block.len() && run < zeros {
             let (mut lo, mut hi) = (usize::MAX, 0);
             for &i in *block {
@@ -2079,7 +2147,7 @@ fn echelon_random<C: Residue>(
             }
         }
     };
-    let scratch = || Kernel::<C>::scratch(&kernel);
+    let scratch = || (Kernel::<C>::scratch(&kernel), Vec::new());
     #[cfg(feature = "parallel")]
     blocks
         .par_iter()
@@ -2232,6 +2300,54 @@ fn reduce_dense<C: Residue>(
     }
     let (lo, hi) = span(&row.columns);
     sweep(buf, (lo, hi), 0, pivots, p)
+}
+
+// Random combinations of a block reduced together in `echelon_random`.
+const COMBOS: usize = 4;
+
+// `sweep` of `COMBOS` rows at once with deferred reductions, reading each pivot once.
+// Returns the reduced rows, possibly empty, and clears the cells it read.
+fn sweep_combos<C: Residue>(
+    buf: &mut [[u64; COMBOS]],
+    (lo, mut hi): (usize, usize),
+    pivots: &impl Pivots<C>,
+    p: u64,
+) -> [SparseRow<C>; COMBOS] {
+    let mut out: [SparseRow<C>; COMBOS] = std::array::from_fn(|_| SparseRow {
+        columns: Vec::new(),
+        coefficients: Vec::new(),
+    });
+    let mut j = lo;
+    while j <= hi && j < buf.len() {
+        if buf[j] == [0; COMBOS] {
+            j += 1;
+            continue;
+        }
+        let v = std::mem::take(&mut buf[j]).map(|x| x % p);
+        let Some(piv) = pivots.get(j as u32) else {
+            for (row, &x) in out.iter_mut().zip(&v) {
+                if x != 0 {
+                    row.columns.push(j as u32);
+                    row.coefficients.push(C::new(x));
+                }
+            }
+            j += 1;
+            continue;
+        };
+        if v != [0; COMBOS] {
+            let c = v.map(|x| (p - x) % p);
+            hi = hi.max(span(piv.columns).1);
+            for (&pc, &pv) in piv.columns[1..].iter().zip(&piv.coefficients[1..]) {
+                let cell = &mut buf[pc as usize];
+                let pv: u64 = pv.into();
+                for l in 0..COMBOS {
+                    cell[l] += c[l] * pv;
+                }
+            }
+        }
+        j += 1;
+    }
+    out
 }
 
 // Eliminate pivot columns from `buf[lo..=hi]` and drain it into a row. Each cell holds

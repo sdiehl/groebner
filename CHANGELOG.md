@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Sweep four random combinations per pass in the Monte Carlo echelon.
+- Balance symbolic preprocessing levels by row length across threads.
 - Add RationalOptions to fix the rational replay batch width.
 - Abort failed rational reconstructions early and gcd small operands in place.
 - Split lane replay rows finely so small rounds use every thread.
