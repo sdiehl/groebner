@@ -55,12 +55,12 @@ Reduced basis with `groebner_basis_f4` over GF(32003) in GRevLex, on Apple M5 si
 
 With a runtime modulus through `Zp`, same settings, by size of the prime.
 
-| System    |  32003 | 2^31 - 1 | 2^62 - 57 |
-| --------- | -----: | -------: | --------: |
-| cyclic8   | 0.18 s |   0.21 s |    0.25 s |
-| katsura11 | 0.51 s |   0.65 s |    0.81 s |
-| noon9     | 1.69 s |   1.81 s |    1.98 s |
-| reimer8   | 1.68 s |   1.84 s |    2.21 s |
+| System    |  32003 | 2^31 - 1 | 2^62 - 57 | 2^63 - 25 |
+| --------- | -----: | -------: | --------: | --------: |
+| cyclic8   | 0.18 s |   0.21 s |    0.25 s |    0.32 s |
+| katsura11 | 0.51 s |   0.65 s |    0.81 s |    1.05 s |
+| noon9     | 1.69 s |   1.81 s |    1.98 s |    2.23 s |
+| reimer8   | 1.68 s |   1.84 s |    2.21 s |    2.67 s |
 
 Over the rationals with `BigRational` coefficients, same settings.
 
