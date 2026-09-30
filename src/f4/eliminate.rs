@@ -3,7 +3,7 @@
 
 use super::{Reducers, SparseRow};
 use crate::{Field, ModularField, par};
-use polycore::modp::{add as add_mod, inv as inv_mod, mul as mul_mod};
+use polycore::modp::{MulBy, add as add_mod, inv as inv_mod, mul as mul_mod};
 use polycore::sample::Rng;
 use std::sync::OnceLock;
 
@@ -371,13 +371,14 @@ fn echelon_random<C: Residue>(
             let (mut lo, mut hi) = (usize::MAX, 0);
             for &i in *block {
                 let m = rng.nonzero(p);
+                let by = MulBy::new(m, p);
                 let (cols, coefs) = (&rows[i].columns, &rows[i].coefficients);
                 for (&c, &v) in cols.iter().zip(coefs) {
                     let cell = &mut buf[c as usize];
                     *cell = if lazy {
                         *cell + m * v.into()
                     } else {
-                        add_mod(*cell, mul_mod(m, v.into(), p), p)
+                        add_mod(*cell, by.mul(v.into(), p), p)
                     };
                 }
                 let (l, h) = span(cols);
@@ -705,8 +706,9 @@ fn sweep<C: Residue>(
                     *cell = if acc >= twice { acc - twice } else { acc };
                 }
             } else {
+                let by = MulBy::new(c, p);
                 for (&pc, &pv) in tail {
-                    buf[pc as usize] = add_mod(buf[pc as usize], mul_mod(c, pv.into(), p), p);
+                    buf[pc as usize] = add_mod(buf[pc as usize], by.mul(pv.into(), p), p);
                 }
             }
         }

@@ -5,6 +5,7 @@
 - Take Lehmer reconstruction and mixed radix CRT from `polycore` 0.1.2.
 - Widen rational replay rounds automatically when the first image is quick.
 - Reduce rows modulo primes above 2^31 with Shoup multiplication.
+- Reduce rows modulo primes above 2^62 with `polycore` `MulBy`.
 - Accumulate Monte Carlo combinations with NEON widening multiply-accumulate.
 - Add katsura14, eco15, and cyclic10 benchmark inputs.
 
