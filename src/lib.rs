@@ -47,6 +47,12 @@
 #[doc = include_str!("../README.md")]
 struct ReadmeDoctests;
 
+/// Global allocator installed by the `mimalloc` feature. A binary may hold only one
+/// global allocator, so this is opt-in.
+#[cfg(feature = "mimalloc")]
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 pub mod f4;
 pub mod modular;
 mod par;

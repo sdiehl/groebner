@@ -4,7 +4,7 @@
 //! isolated, and its basis is checked against its reference fingerprint.
 //!
 //! ```text
-//! cargo run --release --example corpus -- [--filter katsura] [--field zp,qq,gf32003]
+//! cargo run --release --features mimalloc --example corpus -- [--filter katsura] [--field zp,qq,gf32003]
 //!     [--algo f4,buchberger] [--timeout 60] [--jobs 1] [--out results.tsv] [--dir tests/corpus]
 //!     [--manifest tests/corpus/ci.txt] [--strict]
 //! ```

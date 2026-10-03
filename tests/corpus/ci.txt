@@ -2,7 +2,7 @@
 # F4 runs over runtime prime fields, GF(32003) where applicable, and Q.
 # Curated from passing runs; heavy Katsura/Cyclic systems and slow geometry cases are excluded.
 # Keep entries explicit: missing inputs or references must fail CI.
-# Run: cargo run --release --example corpus -- --manifest tests/corpus/ci.txt --field zp,gf32003,qq --timeout 30 --strict
+# Run: cargo run --release --features mimalloc --example corpus -- --manifest tests/corpus/ci.txt --field zp,gf32003,qq --timeout 30 --strict
 
 
 # biology

@@ -30,48 +30,55 @@ for p in &basis {
 See the [API documentation](https://docs.rs/groebner) for Buchberger, runtime primes, ideals, lift
 certificates, monomial orders, and parametric coefficients.
 
+Enable the `mimalloc` feature for maximal performance. It installs mimalloc as the global allocator,
+so leave it off if your binary already sets one.
+
+```toml
+groebner = { version = "0.5", features = ["mimalloc"] }
+```
+
 ## Benchmarks
 
 Reduced basis with `groebner_basis_f4` over GF(32003) in GRevLex, on Apple M5 silicon (10 cores).
 
 | System    | Basis size |   Time |
 | --------- | ---------: | -----: |
-| chandra12 |       2048 | 0.42 s |
-| chandra13 |       4096 | 1.52 s |
-| cyclic8   |        372 | 0.17 s |
-| cyclic9   |       1344 | 5.39 s |
-| eco12     |        743 | 0.26 s |
-| eco13     |       1465 | 0.87 s |
-| eco14     |       2852 | 4.76 s |
-| henrion7  |        415 | 0.32 s |
-| henrion8  |       2344 | 26.4 s |
-| katsura11 |       1050 | 0.48 s |
-| katsura12 |       2091 | 2.42 s |
-| katsura13 |       4140 | 13.3 s |
-| noon9     |       3682 | 1.62 s |
-| noon10    |      10273 | 10.1 s |
-| reimer7   |        227 | 0.13 s |
-| reimer8   |        612 | 1.68 s |
+| chandra12 |       2048 | 0.41 s |
+| chandra13 |       4096 | 1.42 s |
+| cyclic8   |        372 | 0.18 s |
+| cyclic9   |       1344 | 4.98 s |
+| eco12     |        743 | 0.25 s |
+| eco13     |       1465 | 0.84 s |
+| eco14     |       2852 | 4.35 s |
+| henrion7  |        415 | 0.35 s |
+| henrion8  |       2344 | 24.1 s |
+| katsura11 |       1050 | 0.47 s |
+| katsura12 |       2091 | 2.12 s |
+| katsura13 |       4140 | 11.8 s |
+| noon9     |       3682 | 1.54 s |
+| noon10    |      10273 | 8.64 s |
+| reimer7   |        227 | 0.14 s |
+| reimer8   |        612 | 1.54 s |
 
 With a runtime modulus through `Zp`, same settings, by size of the prime.
 
 | System    |  32003 | 2^31 - 1 | 2^62 - 57 | 2^63 - 25 |
 | --------- | -----: | -------: | --------: | --------: |
-| cyclic8   | 0.18 s |   0.21 s |    0.25 s |    0.32 s |
-| katsura11 | 0.51 s |   0.65 s |    0.81 s |    1.05 s |
-| noon9     | 1.69 s |   1.81 s |    1.98 s |    2.23 s |
-| reimer8   | 1.68 s |   1.84 s |    2.21 s |    2.67 s |
+| cyclic8   | 0.18 s |   0.21 s |    0.25 s |    0.30 s |
+| katsura11 | 0.48 s |   0.60 s |    0.74 s |    0.97 s |
+| noon9     | 1.56 s |   1.67 s |    1.80 s |    1.99 s |
+| reimer8   | 1.59 s |   1.75 s |    2.00 s |    2.52 s |
 
 Over the rationals with `BigRational` coefficients, same settings.
 
 | System    | Basis size |   Time |
 | --------- | ---------: | -----: |
-| cyclic8   |        372 | 1.94 s |
-| eco12     |        743 | 1.57 s |
+| cyclic8   |        372 | 1.68 s |
+| eco12     |        743 | 1.37 s |
 | katsura9  |        272 | 0.23 s |
-| katsura10 |        537 | 2.03 s |
-| noon9     |       3682 | 3.92 s |
-| reimer7   |        227 | 0.71 s |
+| katsura10 |        537 | 1.68 s |
+| noon9     |       3682 | 3.22 s |
+| reimer7   |        227 | 0.67 s |
 
 Inputs are in [`benches/data`](benches/data).
 
@@ -79,7 +86,7 @@ Inputs are in [`benches/data`](benches/data).
 
 ```bash
 cargo test
-cargo bench
+cargo bench --features mimalloc
 ```
 
 The [test suite](SUITE.md) is the full list of known Gröbner bases for a variety of large multivariate polynomial systems from several textbooks and some trusted Mathematica generated corpus. Both the Rust algo implementations have to correctly produce the same textbook outputs and Mathematica for all inputs, up to re-ordering.

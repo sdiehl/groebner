@@ -8,6 +8,8 @@
 - Reduce rows modulo primes above 2^62 with `polycore` `MulBy`.
 - Accumulate Monte Carlo combinations with NEON widening multiply-accumulate.
 - Add katsura14, eco15, and cyclic10 benchmark inputs.
+- Add opt-in `mimalloc` feature installing mimalloc as the global allocator.
+- Build tests at `opt-level = 3` with overflow checks.
 
 ## 0.5.0 (2026-09-29)
 

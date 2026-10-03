@@ -23,7 +23,7 @@ jobs:
       - name: Run tests with parameters
         run: cargo test --locked --features parameters
       - name: Test corpus runner
-        run: cargo test --locked --example corpus
+        run: cargo test --locked --features mimalloc --example corpus
       - name: Run doc tests
         run: cargo test --locked --doc --verbose
       - name: Run example
@@ -38,9 +38,9 @@ jobs:
       matrix:
         include:
           - mode: parallel
-            cargo_args: ""
+            cargo_args: "--features mimalloc"
           - mode: serial
-            cargo_args: "--no-default-features"
+            cargo_args: "--no-default-features --features mimalloc"
     env:
       RAYON_NUM_THREADS: 2
     steps:
