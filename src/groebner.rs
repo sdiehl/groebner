@@ -17,11 +17,11 @@
 //! ```
 
 use crate::Field;
+use crate::PolynomialExt;
 use crate::grebauer_moller;
 use crate::monomial::Monomial;
 use crate::polynomial::Polynomial;
 use crate::sugar::{SugaredPolynomial, select_next_by_sugar};
-use crate::{MonomialExt, PolynomialExt};
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 use std::cmp::Ordering;
@@ -32,18 +32,11 @@ use std::fmt;
 pub enum GroebnerError {
     NoLeadingMonomial(usize),
     EmptyInput,
-    Polynomial(crate::polynomial::PolynomialError),
     InvalidPrimeField { expected: u32, actual: u32 },
     OrderMismatch,
     NotZeroDimensional,
     NoModulus,
     ReconstructionFailed,
-}
-
-impl From<crate::polynomial::PolynomialError> for GroebnerError {
-    fn from(e: crate::polynomial::PolynomialError) -> Self {
-        GroebnerError::Polynomial(e)
-    }
 }
 
 impl fmt::Display for GroebnerError {
@@ -53,7 +46,6 @@ impl fmt::Display for GroebnerError {
                 write!(f, "Polynomial at index {idx} has no leading monomial")
             }
             GroebnerError::EmptyInput => write!(f, "Input polynomial list is empty"),
-            GroebnerError::Polynomial(e) => write!(f, "Polynomial error: {e}"),
             GroebnerError::InvalidPrimeField { expected, actual } => write!(
                 f,
                 "runtime prime {actual} does not match coefficient field modulus {expected}"
@@ -92,12 +84,8 @@ impl CriticalPair {
         poly_i: &Polynomial<F>,
         poly_j: &Polynomial<F>,
     ) -> Result<Self, GroebnerError> {
-        let lm_i = poly_i
-            .leading_monomial()
-            .ok_or(GroebnerError::NoLeadingMonomial(i))?;
-        let lm_j = poly_j
-            .leading_monomial()
-            .ok_or(GroebnerError::NoLeadingMonomial(j))?;
+        let lm_i = poly_i.lm().ok_or(GroebnerError::NoLeadingMonomial(i))?;
+        let lm_j = poly_j.lm().ok_or(GroebnerError::NoLeadingMonomial(j))?;
         let lcm = lm_i.lcm(lm_j);
         let degree = lcm.degree();
         Ok(Self { i, j, lcm, degree })
@@ -159,14 +147,14 @@ pub fn groebner_basis_parallel<F: Field + Send + Sync>(
             .collect::<Vec<_>>();
 
         new_polynomials.sort_by(|a, b| compare_leading(b, a, &order));
-        new_polynomials.dedup_by(|a, b| a.leading_monomial() == b.leading_monomial());
+        new_polynomials.dedup_by(|a, b| a.lm() == b.lm());
 
         for polynomial in new_polynomials {
-            let reduced = polynomial.normal_form(&basis)?;
+            let reduced = polynomial.normal_form(&basis);
             if reduced.is_zero() {
                 continue;
             }
-            let monic_reduced = reduced.make_monic();
+            let monic_reduced = reduced.monic();
             let new_index = basis.len();
             for (i, existing) in basis.iter().enumerate() {
                 pairs.push(CriticalPair::new(i, new_index, existing, &monic_reduced)?);
@@ -194,7 +182,7 @@ pub fn groebner_basis_incremental<F: Field>(
         let reduced = if combined.is_empty() {
             polynomial
         } else {
-            polynomial.normal_form(&combined)?
+            polynomial.normal_form(&combined)
         };
         if !reduced.is_zero() {
             combined.push(reduced);
@@ -221,9 +209,7 @@ pub fn groebner_basis_with_strategy<F: Field>(
     if let SelectionStrategy::Sugar = *strategy {
         for i in 0..basis.len() {
             for j in i + 1..basis.len() {
-                if let Ok(s_poly) = basis[i].s_polynomial(&basis[j]) {
-                    sugar_queue.push(SugaredPolynomial::new(s_poly));
-                }
+                sugar_queue.push(SugaredPolynomial::new(basis[i].spoly(&basis[j])));
             }
         }
     }
@@ -267,11 +253,11 @@ pub fn groebner_basis_with_strategy<F: Field>(
                 }
             }
         };
-        let reduced = s_poly.normal_form(&basis)?;
+        let reduced = s_poly.normal_form(&basis);
         if reduced.is_zero() {
             continue;
         }
-        let monic_reduced = reduced.make_monic();
+        let monic_reduced = reduced.monic();
         let new_index = basis.len();
         for (i, existing) in basis.iter().enumerate() {
             let new_pair = CriticalPair::new(i, new_index, existing, &monic_reduced)?;
@@ -279,9 +265,7 @@ pub fn groebner_basis_with_strategy<F: Field>(
                 SelectionStrategy::Degree => pairs.push(new_pair),
                 SelectionStrategy::GebauerMoller => gm_pairs.push(new_pair),
                 SelectionStrategy::Sugar => {
-                    if let Ok(s_poly) = existing.s_polynomial(&monic_reduced) {
-                        sugar_queue.push(SugaredPolynomial::new(s_poly));
-                    }
+                    sugar_queue.push(SugaredPolynomial::new(existing.spoly(&monic_reduced)));
                 }
             }
         }
@@ -296,7 +280,7 @@ pub(crate) fn prepare_input<F: Field>(
     let basis: Vec<Polynomial<F>> = polynomials
         .into_iter()
         .filter(|p| !p.is_zero())
-        .map(|p| p.make_monic())
+        .map(|p| p.monic())
         .collect();
     if basis.is_empty() {
         return Err(GroebnerError::EmptyInput);
@@ -318,15 +302,15 @@ fn pair_s_polynomial<F: Field>(
     let poly_i = &basis[pair.i];
     let poly_j = &basis[pair.j];
     let lm_i = poly_i
-        .leading_monomial()
+        .lm()
         .ok_or(GroebnerError::NoLeadingMonomial(pair.i))?;
     let lm_j = poly_j
-        .leading_monomial()
+        .lm()
         .ok_or(GroebnerError::NoLeadingMonomial(pair.j))?;
     if lm_i.is_coprime(lm_j) {
         return Ok(None);
     }
-    Ok(Some(poly_i.s_polynomial(poly_j)?))
+    Ok(Some(poly_i.spoly(poly_j)))
 }
 
 pub(crate) fn compare_leading<F: Field>(
@@ -334,8 +318,8 @@ pub(crate) fn compare_leading<F: Field>(
     b: &Polynomial<F>,
     order: &crate::monomial::MonomialOrder,
 ) -> Ordering {
-    match (a.leading_monomial(), b.leading_monomial()) {
-        (Some(ma), Some(mb)) => ma.compare(mb, order),
+    match (a.lm(), b.lm()) {
+        (Some(ma), Some(mb)) => order.compare(ma, mb),
         (Some(_), None) => Ordering::Greater,
         (None, Some(_)) => Ordering::Less,
         (None, None) => Ordering::Equal,
@@ -344,10 +328,7 @@ pub(crate) fn compare_leading<F: Field>(
 
 /// Which basis elements survive minimization: no leading monomial divisible by another's.
 pub(crate) fn minimal_mask<F: Field>(basis: &[Polynomial<F>]) -> Vec<bool> {
-    let leads: Vec<_> = basis
-        .iter()
-        .filter_map(|p| p.leading_monomial().cloned())
-        .collect();
+    let leads: Vec<_> = basis.iter().filter_map(|p| p.lm().cloned()).collect();
     let mut keep = vec![true; basis.len()];
     for i in 0..leads.len() {
         for j in 0..leads.len() {
@@ -386,7 +367,7 @@ pub(crate) fn finish_basis<F: Field>(
     let mut reduced = Vec::with_capacity(basis.len());
     for i in 0..basis.len() {
         let others = basis.iter().enumerate().filter(|(j, _)| *j != i);
-        let r = crate::polynomial::divide_by(&basis[i], others, |_, _, _| {})?.make_monic();
+        let r = crate::polynomial::divide_by(&basis[i], others, |_, _, _| {}).monic();
         if !r.is_zero() {
             reduced.push(r);
         }
@@ -426,37 +407,30 @@ fn reduce_pair_against_basis<F: Field>(
     let Some(s_poly) = pair_s_polynomial(pair, basis)? else {
         return Ok(None);
     };
-    let reduced = s_poly.normal_form(basis)?;
-    Ok((!reduced.is_zero()).then(|| reduced.make_monic()))
+    let reduced = s_poly.normal_form(basis);
+    Ok((!reduced.is_zero()).then(|| reduced.monic()))
 }
 
 /// Check Buchberger's criterion: every S-polynomial reduces to zero.
-pub fn is_groebner_basis<F: Field>(basis: &[Polynomial<F>]) -> Result<bool, GroebnerError> {
+pub fn is_groebner_basis<F: Field>(basis: &[Polynomial<F>]) -> bool {
     for i in 0..basis.len() {
         for j in i + 1..basis.len() {
-            let reduced = basis[i].s_polynomial(&basis[j])?.normal_form(basis)?;
+            let reduced = basis[i].spoly(&basis[j]).normal_form(basis);
             if !reduced.is_zero() {
-                return Ok(false);
+                return false;
             }
         }
     }
-    Ok(true)
+    true
 }
 
 /// Check Buchberger's criterion with S-polynomial reductions run in parallel.
 #[cfg(feature = "parallel")]
-pub fn is_groebner_basis_parallel<F: Field + Send + Sync>(
-    basis: &[Polynomial<F>],
-) -> Result<bool, GroebnerError> {
+pub fn is_groebner_basis_parallel<F: Field + Send + Sync>(basis: &[Polynomial<F>]) -> bool {
     let pairs = (0..basis.len())
         .flat_map(|i| (i + 1..basis.len()).map(move |j| (i, j)))
         .collect::<Vec<_>>();
-    let checks = pairs
+    pairs
         .par_iter()
-        .map(|&(i, j)| {
-            let reduced = basis[i].s_polynomial(&basis[j])?.normal_form(basis)?;
-            Ok(reduced.is_zero())
-        })
-        .collect::<Result<Vec<_>, GroebnerError>>()?;
-    Ok(checks.into_iter().all(|is_zero| is_zero))
+        .all(|&(i, j)| basis[i].spoly(&basis[j]).normal_form(basis).is_zero())
 }

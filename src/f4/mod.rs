@@ -24,7 +24,7 @@ mod trace;
 use crate::finite_field::{PrimeField, Zp};
 use crate::groebner::{GroebnerError, prepare_input};
 use crate::monomial::{Monomial, MonomialOrder};
-use crate::polynomial::{Polynomial, term};
+use crate::polynomial::Polynomial;
 use crate::{Field, par};
 use eliminate::{
     Row, Table, echelonize_generic, echelonize_modular, echelonize_modular_traced, reduce_generic,
@@ -326,7 +326,7 @@ fn decode<F: Field>(
         .columns
         .iter()
         .zip(&row.coefficients)
-        .map(|(&c, v)| term(v.clone(), columns[c as usize].clone()))
+        .map(|(&c, v)| (columns[c as usize].clone(), v.clone()))
         .collect();
     Polynomial {
         terms,

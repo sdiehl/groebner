@@ -15,7 +15,6 @@
 
 use crate::f4::F4Field;
 use crate::polynomial::Polynomial;
-use crate::polynomial::term;
 use num_rational::BigRational;
 use num_traits::{One, Signed, Zero};
 use polycore::{RatFunc, Uni};
@@ -132,7 +131,7 @@ pub fn specialize(
     let terms = polynomial
         .terms
         .iter()
-        .map(|t| Some(term(t.1.evaluate(value)?, t.0.clone())))
+        .map(|t| Some((t.0.clone(), t.1.evaluate(value)?)))
         .collect::<Option<Vec<_>>>()?;
     Some(Polynomial::new(
         terms,

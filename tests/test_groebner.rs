@@ -134,7 +134,7 @@ mod tests {
 
         let basis = groebner_basis(vec![f, g], true).expect("Groebner computation failed");
         assert!(!basis.is_empty());
-        assert!(is_groebner_basis(&basis).expect("Groebner basis check failed"));
+        assert!(is_groebner_basis(&basis));
     }
 
     #[test]
@@ -155,7 +155,7 @@ mod tests {
 
         let basis = groebner_basis(vec![f, g], true).expect("Groebner computation failed");
         assert!(!basis.is_empty());
-        assert!(is_groebner_basis(&basis).expect("Groebner basis check failed"));
+        assert!(is_groebner_basis(&basis));
         assert_eq!(basis.len(), 2);
     }
 
@@ -406,7 +406,7 @@ mod tests {
 
         // Check basic properties
         assert!(!basis.is_empty());
-        assert!(is_groebner_basis(&basis).expect("Groebner basis check failed"));
+        assert!(is_groebner_basis(&basis));
 
         // Should have 3 polynomials in the basis
         assert_eq!(basis.len(), 3);
@@ -601,7 +601,7 @@ mod tests {
 
         let basis = groebner_basis(vec![f, g], true).expect("Groebner computation failed");
         assert!(!basis.is_empty());
-        assert!(is_groebner_basis(&basis).expect("Groebner basis check failed"));
+        assert!(is_groebner_basis(&basis));
     }
 
     #[test]
@@ -641,7 +641,7 @@ mod tests {
 
         // Check basic properties of the computed Groebner basis
         assert!(!basis.is_empty());
-        assert!(is_groebner_basis(&basis).expect("Groebner basis check failed"));
+        assert!(is_groebner_basis(&basis));
 
         // The Katsura-3 system should produce 3 polynomials in the basis
         assert_eq!(basis.len(), 3);
@@ -649,21 +649,21 @@ mod tests {
         // Check that we have the expected leading monomials (in lex order: x0, x1, x2^4)
         assert_eq!(
             basis[0]
-                .leading_monomial()
+                .lm()
                 .expect("Leading monomial computation failed")
                 .exps(),
             [1, 0, 0]
         ); // Leading term should be x0
         assert_eq!(
             basis[1]
-                .leading_monomial()
+                .lm()
                 .expect("Leading monomial computation failed")
                 .exps(),
             [0, 1, 0]
         ); // Leading term should be x1
         assert_eq!(
             basis[2]
-                .leading_monomial()
+                .lm()
                 .expect("Leading monomial computation failed")
                 .exps(),
             [0, 0, 4]
@@ -703,7 +703,7 @@ mod tests {
 
         let basis = groebner_basis(vec![f1, f2, f3], true).expect("Groebner computation failed");
         assert!(!basis.is_empty());
-        assert!(is_groebner_basis(&basis).expect("Groebner basis check failed"));
+        assert!(is_groebner_basis(&basis));
     }
 
     #[test]
@@ -753,7 +753,7 @@ mod tests {
 
         // Check basic properties of the computed Groebner basis
         assert!(!basis.is_empty());
-        assert!(is_groebner_basis(&basis).expect("Groebner basis check failed"));
+        assert!(is_groebner_basis(&basis));
 
         // The cyclic-4 system should produce 5 polynomials in the basis
         assert_eq!(basis.len(), 5);
@@ -763,11 +763,7 @@ mod tests {
         // Just verify the structure is reasonable for cyclic-4
         let leading_exponents: Vec<_> = basis
             .iter()
-            .map(|p| {
-                p.leading_monomial()
-                    .expect("Leading monomial computation failed")
-                    .exps()
-            })
+            .map(|p| p.lm().expect("Leading monomial computation failed").exps())
             .collect();
 
         // The first polynomial should have leading term in the first variable (a)
@@ -822,7 +818,7 @@ mod tests {
         let basis =
             groebner_basis(vec![f1, f2, f3, f4], true).expect("Groebner computation failed");
         assert!(!basis.is_empty());
-        assert!(is_groebner_basis(&basis).expect("Groebner basis check failed"));
+        assert!(is_groebner_basis(&basis));
     }
 
     #[test]
@@ -842,7 +838,7 @@ mod tests {
 
         let basis = groebner_basis(vec![f1, f2], true).expect("Groebner computation failed");
         assert!(!basis.is_empty());
-        assert!(is_groebner_basis(&basis).expect("Groebner basis check failed"));
+        assert!(is_groebner_basis(&basis));
     }
 
     #[test]
@@ -864,8 +860,8 @@ mod tests {
             groebner_basis(vec![f.clone(), g.clone()], true).expect("Groebner computation failed");
         let basis_grlex = groebner_basis(vec![f, g], true).expect("Groebner computation failed");
 
-        assert!(is_groebner_basis(&basis_lex).expect("Groebner basis check failed"));
-        assert!(is_groebner_basis(&basis_grlex).expect("Groebner basis check failed"));
+        assert!(is_groebner_basis(&basis_lex));
+        assert!(is_groebner_basis(&basis_grlex));
 
         // The bases might be different but both should be valid
         assert!(!basis_lex.is_empty());
@@ -888,7 +884,7 @@ mod tests {
         );
 
         let basis = vec![g];
-        let remainder = f.normal_form(&basis).expect("Polynomial reduction failed");
+        let remainder = f.normal_form(&basis);
 
         // The remainder should have degree less than the leading term of g
         assert!(remainder.terms.len() <= f.terms.len());
@@ -909,7 +905,7 @@ mod tests {
             MonomialOrder::Lex,
         );
 
-        let s_poly = f.s_polynomial(&g).expect("S-polynomial computation failed");
+        let s_poly = f.spoly(&g);
         assert!(!s_poly.is_zero());
     }
 
@@ -926,7 +922,7 @@ mod tests {
         let single_basis =
             groebner_basis(vec![single.clone()], true).expect("Groebner computation failed");
         assert_eq!(single_basis.len(), 1);
-        assert!(is_groebner_basis(&single_basis).expect("Groebner basis check failed"));
+        assert!(is_groebner_basis(&single_basis));
     }
 
     #[test]
@@ -937,7 +933,7 @@ mod tests {
         let basis =
             groebner_basis(vec![zero, nonzero.clone()], true).expect("Groebner computation failed");
         assert_eq!(basis.len(), 1);
-        assert!(is_groebner_basis(&basis).expect("Groebner basis check failed"));
+        assert!(is_groebner_basis(&basis));
     }
 
     #[test]
@@ -949,7 +945,7 @@ mod tests {
             groebner_basis(vec![constant, other], true).expect("Groebner computation failed");
         // If the ideal contains a nonzero constant, the basis should be {1}
         assert!(!basis.is_empty());
-        assert!(is_groebner_basis(&basis).expect("Groebner basis check failed"));
+        assert!(is_groebner_basis(&basis));
     }
 
     #[test]
@@ -969,7 +965,7 @@ mod tests {
 
         let basis = groebner_basis(vec![f1, f2], true).expect("Groebner computation failed");
         assert!(!basis.is_empty());
-        assert!(is_groebner_basis(&basis).expect("Groebner basis check failed"));
+        assert!(is_groebner_basis(&basis));
     }
 
     #[test]
@@ -989,7 +985,7 @@ mod tests {
 
         let basis = groebner_basis(vec![f1, f2], true).expect("Groebner computation failed");
         assert!(!basis.is_empty());
-        assert!(is_groebner_basis(&basis).expect("Groebner basis check failed"));
+        assert!(is_groebner_basis(&basis));
     }
 
     #[test]
@@ -1009,6 +1005,6 @@ mod tests {
 
         let basis = groebner_basis(vec![f1, f2], true).expect("Groebner computation failed");
         assert!(!basis.is_empty());
-        assert!(is_groebner_basis(&basis).expect("Groebner basis check failed"));
+        assert!(is_groebner_basis(&basis));
     }
 }

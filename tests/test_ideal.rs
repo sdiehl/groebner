@@ -13,9 +13,9 @@ fn ring(vars: &[&str], order: MonomialOrder) -> PolynomialRing<F> {
 fn membership_and_normal_form() {
     let r = ring(&["x", "y"], MonomialOrder::GRevLex);
     let ideal = Ideal::new(r.parse_many("x^2 - y; y^2 - x").unwrap()).unwrap();
-    assert!(ideal.contains(&r.parse("x^4 - x").unwrap()).unwrap());
-    assert!(!ideal.contains(&r.parse("x + 1").unwrap()).unwrap());
-    let nf = ideal.normal_form(&r.parse("x^3 + y^3").unwrap()).unwrap();
+    assert!(ideal.contains(&r.parse("x^4 - x").unwrap()));
+    assert!(!ideal.contains(&r.parse("x + 1").unwrap()));
+    let nf = ideal.normal_form(&r.parse("x^3 + y^3").unwrap());
     assert_eq!(r.format(&nf).unwrap(), "2*x*y");
     assert!(!ideal.is_trivial());
 }
@@ -53,7 +53,7 @@ fn radical_membership() {
     let r = ring(&["x", "y"], MonomialOrder::GRevLex);
     let ideal = Ideal::new(r.parse_many("x^2; y^3").unwrap()).unwrap();
     assert!(ideal.radical_contains(&r.parse("x*y").unwrap()).unwrap());
-    assert!(!ideal.contains(&r.parse("x*y").unwrap()).unwrap());
+    assert!(!ideal.contains(&r.parse("x*y").unwrap()));
     assert!(!ideal.radical_contains(&r.parse("x + 1").unwrap()).unwrap());
 }
 
@@ -102,7 +102,7 @@ fn change_order_over_rationals() {
 fn multiplication_matrix_shape() {
     let r = ring(&["x", "y"], MonomialOrder::GRevLex);
     let ideal = Ideal::new(r.parse_many("x^2 - y; y^2 - 1").unwrap()).unwrap();
-    let m = ideal.multiplication_matrix(0).unwrap().unwrap();
+    let m = ideal.multiplication_matrix(0).unwrap();
     assert_eq!(m.len(), 4);
     assert!(m.iter().all(|column| column.len() == 4));
 }

@@ -47,7 +47,7 @@ fn f4_matches_const_modulus_field() {
     let a_text: Vec<_> = a.iter().map(|p| zp.format(p).unwrap()).collect();
     let b_text: Vec<_> = b.iter().map(|p| pf.format(p).unwrap()).collect();
     assert_eq!(a_text, b_text);
-    assert!(is_groebner_basis(&a).unwrap());
+    assert!(is_groebner_basis(&a));
 }
 
 #[test]
@@ -57,7 +57,7 @@ fn f4_with_64_bit_modulus_matches_buchberger() {
     let f4 = groebner_basis_f4(polys.clone(), true).unwrap();
     let buchberger = groebner_basis(polys, true).unwrap();
     assert_eq!(f4, buchberger);
-    assert!(is_groebner_basis(&f4).unwrap());
+    assert!(is_groebner_basis(&f4));
 }
 
 #[test]
@@ -72,5 +72,5 @@ fn f4_with_64_bit_modulus_large_residues() {
     let f4 = groebner_basis_f4(polys.clone(), true).unwrap();
     let buchberger = groebner_basis(polys, true).unwrap();
     assert_eq!(f4, buchberger);
-    assert!(is_groebner_basis(&f4).unwrap());
+    assert!(is_groebner_basis(&f4));
 }

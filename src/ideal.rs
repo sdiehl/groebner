@@ -5,19 +5,19 @@
 //!
 //! let ring = PolynomialRing::<PrimeField<32003>>::new(["x", "y"], MonomialOrder::GRevLex)?;
 //! let ideal = Ideal::new(ring.parse_many("x^2 - y; y^2 - x")?)?;
-//! assert!(ideal.contains(&ring.parse("x^4 - x")?)?);
+//! assert!(ideal.contains(&ring.parse("x^4 - x")?));
 //! assert_eq!(ideal.vector_space_dimension(), Some(4));
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 
 use crate::Field;
+use crate::PolynomialExt;
 use crate::f4::{F4Field, groebner_basis_f4};
 use crate::fglm;
 use crate::groebner::{GroebnerError, finish_basis, prepare_input};
 use crate::lift::LiftBasis;
 use crate::monomial::{Monomial, MonomialOrder};
 use crate::polynomial::Polynomial;
-use crate::{MonomialExt, PolynomialExt};
 use std::sync::OnceLock;
 
 /// An ideal wrapping its reduced Groebner basis.
@@ -34,7 +34,7 @@ use std::sync::OnceLock;
 /// let ideal = Ideal::new(ring.parse_many("x^2 + y^2 - 1; x - y^3")?)?;
 /// assert_eq!(ideal.vector_space_dimension(), Some(6));
 /// let lex = ideal.change_order(MonomialOrder::Lex)?;
-/// assert!(lex.contains(&ring.parse("y^6 + y^2 - 1")?)?);
+/// assert!(lex.contains(&ring.parse("y^6 + y^2 - 1")?));
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
 #[derive(Debug, Clone)]
@@ -110,14 +110,14 @@ impl<F: F4Field> Ideal<F> {
                 .map(|term| {
                     let mut e = term.0.exps().to_vec();
                     e.push(t_power);
-                    crate::polynomial::term(term.1.clone(), Monomial::new(e))
+                    (Monomial::new(e), term.1.clone())
                 })
                 .collect();
             Polynomial::new(terms, n, order.clone())
         };
         let mut generators: Vec<_> = self.basis.iter().map(|p| extend(p, 0)).collect();
         let one = Polynomial::constant(F::one(), n, order.clone());
-        generators.push(one.subtract(&extend(f, 1)));
+        generators.push(&one - &extend(f, 1));
         let basis = groebner_basis_f4(generators, false)?;
         Ok(basis.iter().any(Polynomial::is_constant))
     }
@@ -211,12 +211,12 @@ impl<F: Field> Ideal<F> {
         self.nvars
     }
 
-    pub fn normal_form(&self, f: &Polynomial<F>) -> Result<Polynomial<F>, GroebnerError> {
-        Ok(f.reorder(self.order.clone()).normal_form(&self.basis)?)
+    pub fn normal_form(&self, f: &Polynomial<F>) -> Polynomial<F> {
+        f.reorder(self.order.clone()).normal_form(&self.basis)
     }
 
-    pub fn contains(&self, f: &Polynomial<F>) -> Result<bool, GroebnerError> {
-        Ok(self.normal_form(f)?.is_zero())
+    pub fn contains(&self, f: &Polynomial<F>) -> bool {
+        self.normal_form(f).is_zero()
     }
 
     /// True when the ideal is the whole ring.
@@ -231,7 +231,7 @@ impl<F: Field> Ideal<F> {
     /// Monomials not divisible by any leading monomial, or `None` if infinitely many.
     pub fn standard_monomials(&self) -> Option<Vec<Monomial>> {
         let mut monomials = fglm::standard_monomials(&self.basis)?;
-        monomials.sort_by(|a, b| a.compare(b, &self.order));
+        monomials.sort_by(|a, b| self.order.compare(a, b));
         Some(monomials)
     }
 
@@ -241,15 +241,12 @@ impl<F: Field> Ideal<F> {
     }
 
     /// Matrix of multiplication by variable `var` on the standard monomial basis, column major.
-    pub fn multiplication_matrix(&self, var: usize) -> Result<Option<Vec<Vec<F>>>, GroebnerError> {
-        let Some(monomials) = self.standard_monomials() else {
-            return Ok(None);
-        };
-        let x = Monomial::variable(var, self.nvars);
+    pub fn multiplication_matrix(&self, var: usize) -> Option<Vec<Vec<F>>> {
+        let monomials = self.standard_monomials()?;
+        let x = Monomial::var(var, self.nvars);
         let mut matrix = Vec::with_capacity(monomials.len());
         for m in &monomials {
-            let image = Polynomial::monomial(m.multiply(&x), self.order.clone())
-                .normal_form(&self.basis)?;
+            let image = Polynomial::monomial(m * &x, self.order.clone()).normal_form(&self.basis);
             let column = monomials
                 .iter()
                 .map(|b| {
@@ -262,6 +259,6 @@ impl<F: Field> Ideal<F> {
                 .collect();
             matrix.push(column);
         }
-        Ok(Some(matrix))
+        Some(matrix)
     }
 }

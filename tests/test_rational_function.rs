@@ -99,7 +99,7 @@ fn basis_over_q_of_a() -> Result {
 
     let f4 = groebner_basis_f4(ring.parse_many("x^2 - a; x*y - 1")?, true)?;
     assert_eq!(show(&ring, &f4), expected);
-    assert!(is_groebner_basis(&f4)?);
+    assert!(is_groebner_basis(&f4));
 
     let buchberger = groebner_basis(ring.parse_many("x^2 - a; x*y - 1")?, true)?;
     assert_eq!(show(&ring, &buchberger), expected);
@@ -111,7 +111,7 @@ fn generic_basis_specializes() -> Result {
     let generic = ring(MonomialOrder::GRevLex);
     let input = "x^2 + y^2 - a; a*x*y - 1; x^3 - a*y + x";
     let basis = groebner_basis_f4(generic.parse_many(input)?, true)?;
-    assert!(is_groebner_basis(&basis)?);
+    assert!(is_groebner_basis(&basis));
 
     let three = PolynomialRing::<BigRational>::new(["x", "y"], MonomialOrder::GRevLex)?;
     let direct = groebner_basis_f4(three.parse_many(&input.replace('a', "3"))?, true)?;
@@ -125,7 +125,7 @@ fn ideal_over_q_of_a() -> Result {
     let ring = ring(MonomialOrder::GRevLex);
     let ideal = Ideal::new(ring.parse_many("x^2 - a; y^2 - a - 1")?)?;
     assert_eq!(ideal.vector_space_dimension(), Some(4));
-    assert!(ideal.contains(&ring.parse("x^2*y^2 - a^2 - a")?)?);
-    assert!(!ideal.contains(&ring.parse("x - a")?)?);
+    assert!(ideal.contains(&ring.parse("x^2*y^2 - a^2 - a")?));
+    assert!(!ideal.contains(&ring.parse("x - a")?));
     Ok(())
 }

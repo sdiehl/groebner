@@ -52,7 +52,7 @@ fn check_system<F: F4Field + ParseCoefficient>(
     let multipliers = r.parse_many(combination).unwrap();
     targets.push(multipliers.iter().zip(&generators).fold(
         Polynomial::zero(generators[0].nvars, r.order()),
-        |acc, (m, g)| acc.add(&m.multiply(g)),
+        |acc, (m, g)| &acc + &(m * g),
     ));
     targets.extend(ideal.basis().iter().cloned());
     for f in targets {
@@ -112,7 +112,7 @@ fn non_member_has_no_certificate() {
     let ideal = Ideal::new(r.parse_many(CYCLIC3.1).unwrap()).unwrap();
     for src in ["x", "x^2 + 1", "y - 1"] {
         let f = r.parse(src).unwrap();
-        assert!(!ideal.contains(&f).unwrap());
+        assert!(!ideal.contains(&f));
         assert_eq!(ideal.lift(&f).unwrap(), None);
     }
 }
@@ -138,7 +138,7 @@ fn verify_rejects_bad_certificates() {
         .unwrap();
     assert!(verify_lift(&generators, &h, &f));
     assert!(!verify_lift(&generators, &h[..1], &f));
-    h[0] = h[0].add(&r.parse("1").unwrap());
+    h[0] = &h[0] + &r.parse("1").unwrap();
     assert!(!verify_lift(&generators, &h, &f));
 }
 
@@ -147,12 +147,12 @@ fn division_identity() {
     let r = ring::<BigRational>(&["x", "y", "z"], MonomialOrder::GrLex);
     let divisors = r.parse_many("x*y - z; 2*y^2 + x; 0; z^2 - 1").unwrap();
     let f = r.parse("x^3*y^2 + 3*x*y*z^3 - y^4 + 7").unwrap();
-    let (quotients, remainder) = f.divide_with_remainder(&divisors).unwrap();
-    assert_eq!(remainder, f.normal_form(&divisors).unwrap());
+    let (quotients, remainder) = f.divide_with_remainder(&divisors);
+    assert_eq!(remainder, f.normal_form(&divisors));
     assert!(quotients[2].is_zero());
     let sum = quotients
         .iter()
         .zip(&divisors)
-        .fold(remainder, |acc, (q, d)| acc.add(&q.multiply(d)));
+        .fold(remainder, |acc, (q, d)| &acc + &(q * d));
     assert_eq!(sum, f);
 }

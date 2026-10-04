@@ -12,11 +12,10 @@
 //! ```
 
 use crate::Field;
+use crate::PolynomialExt;
 use crate::groebner::{GroebnerError, compare_leading};
 use crate::monomial::{Monomial, MonomialOrder};
 use crate::polynomial::Polynomial;
-use crate::polynomial::term;
-use crate::{MonomialExt, PolynomialExt};
 use std::cmp::Ordering;
 use std::collections::{BinaryHeap, HashMap, HashSet};
 
@@ -25,10 +24,7 @@ pub fn is_zero_dimensional<F: Field>(basis: &[Polynomial<F>]) -> bool {
     let Some(nvars) = basis.first().map(|p| p.nvars) else {
         return false;
     };
-    let leads: Vec<&Monomial> = basis
-        .iter()
-        .filter_map(Polynomial::leading_monomial)
-        .collect();
+    let leads: Vec<&Monomial> = basis.iter().filter_map(Polynomial::lm).collect();
     if leads.iter().any(|m| m.is_one()) {
         return true;
     }
@@ -45,10 +41,7 @@ pub fn standard_monomials<F: Field>(basis: &[Polynomial<F>]) -> Option<Vec<Monom
         return None;
     }
     let nvars = basis.first()?.nvars;
-    let leads: Vec<&Monomial> = basis
-        .iter()
-        .filter_map(Polynomial::leading_monomial)
-        .collect();
+    let leads: Vec<&Monomial> = basis.iter().filter_map(Polynomial::lm).collect();
     let mut seen = HashSet::new();
     let mut out = Vec::new();
     let mut stack = vec![Monomial::one(nvars)];
@@ -57,7 +50,7 @@ pub fn standard_monomials<F: Field>(basis: &[Polynomial<F>]) -> Option<Vec<Monom
             continue;
         }
         for i in 0..nvars {
-            stack.push(m.multiply(&Monomial::variable(i, nvars)));
+            stack.push(&m * &Monomial::var(i, nvars));
         }
         out.push(m);
     }
@@ -82,7 +75,7 @@ impl PartialOrd for Ordered {
 }
 impl Ord for Ordered {
     fn cmp(&self, other: &Self) -> Ordering {
-        other.monomial.compare(&self.monomial, &self.order)
+        self.order.compare(&other.monomial, &self.monomial)
     }
 }
 
@@ -114,7 +107,7 @@ pub fn fglm<F: Field>(
         if !processed.insert(m.clone()) || new_leads.iter().any(|l| l.divides(&m)) {
             continue;
         }
-        let nf = normal_form_of(&m, &staircase, basis)?;
+        let nf = normal_form_of(&m, &staircase, basis);
         let mut vector = vec![F::zero(); index.len()];
         for t in &nf.terms {
             let next = index.len();
@@ -142,10 +135,10 @@ pub fn fglm<F: Field>(
             }
         }
         if vector.iter().all(num_traits::Zero::is_zero) {
-            let mut terms = vec![term(F::one(), m.clone())];
+            let mut terms = vec![(m.clone(), F::one())];
             for (k, (b, _)) in staircase.iter().enumerate() {
                 if !combination[k].is_zero() {
-                    terms.push(term(combination[k].clone(), b.clone()));
+                    terms.push((b.clone(), combination[k].clone()));
                 }
             }
             result.push(Polynomial::new(terms, nvars, target.clone()));
@@ -154,9 +147,7 @@ pub fn fglm<F: Field>(
             let Some(pivot) = vector.iter().position(|v| !v.is_zero()) else {
                 continue;
             };
-            let inv = vector[pivot]
-                .inverse()
-                .ok_or(crate::polynomial::PolynomialError::DivisionByZero)?;
+            let inv = F::one() / vector[pivot].clone();
             let vector: Vec<F> = vector.iter().map(|v| v.clone() * inv.clone()).collect();
             let combination: Vec<F> = combination
                 .iter()
@@ -165,7 +156,7 @@ pub fn fglm<F: Field>(
             rows.push((vector, combination));
             for i in 0..nvars {
                 queue.push(Ordered {
-                    monomial: m.multiply(&Monomial::variable(i, nvars)),
+                    monomial: &m * &Monomial::var(i, nvars),
                     order: target.clone(),
                 });
             }
@@ -180,14 +171,14 @@ fn normal_form_of<F: Field>(
     m: &Monomial,
     staircase: &[(Monomial, Polynomial<F>)],
     basis: &[Polynomial<F>],
-) -> Result<Polynomial<F>, GroebnerError> {
+) -> Polynomial<F> {
     let order = basis[0].order.clone();
     for (b, nf) in staircase.iter().rev() {
-        if let Some(q) = m.divide(b)
+        if let Some(q) = m.quo(b)
             && q.degree() == 1
         {
-            return Ok(nf.multiply_monomial(&q).normal_form(basis)?);
+            return nf.mul_term(&F::one(), &q).normal_form(basis);
         }
     }
-    Ok(Polynomial::monomial(m.clone(), order).normal_form(basis)?)
+    Polynomial::monomial(m.clone(), order).normal_form(basis)
 }

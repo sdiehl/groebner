@@ -13,10 +13,10 @@
 //! ```
 
 use crate::Field;
+use crate::PolynomialExt;
 use crate::groebner::{CriticalPair, GroebnerError, compare_leading, minimal_mask};
 use crate::monomial::Monomial;
-use crate::polynomial::{Polynomial, PolynomialError};
-use crate::{MonomialExt, PolynomialExt};
+use crate::polynomial::Polynomial;
 use std::collections::BinaryHeap;
 
 type Row<F> = Vec<Polynomial<F>>;
@@ -60,21 +60,22 @@ impl<F: Field> LiftBasis<F> {
         }
         while let Some(pair) = pairs.pop() {
             let (gi, gj) = (&basis[pair.i], &basis[pair.j]);
-            let (Some(lm_i), Some(lm_j)) = (gi.leading_monomial(), gj.leading_monomial()) else {
+            let (Some(lm_i), Some(lm_j)) = (gi.lm(), gj.lm()) else {
                 continue;
             };
             if lm_i.is_coprime(lm_j) {
                 continue;
             }
-            let mi = cofactor(&pair.lcm, lm_i)?;
-            let mj = cofactor(&pair.lcm, lm_j)?;
+            let (Some(mi), Some(mj)) = (pair.lcm.quo(lm_i), pair.lcm.quo(lm_j)) else {
+                continue;
+            };
             let s = shift_subtract(gi, &mi, gj, &mj);
             let row: Row<F> = rows[pair.i]
                 .iter()
                 .zip(&rows[pair.j])
                 .map(|(a, b)| shift_subtract(a, &mi, b, &mj))
                 .collect();
-            let (r, row) = reduce_tracked(&s, row, &basis, &rows)?;
+            let (r, row) = reduce_tracked(&s, row, &basis, &rows);
             if r.is_zero() {
                 continue;
             }
@@ -96,7 +97,7 @@ impl<F: Field> LiftBasis<F> {
         let mut reduced = Vec::with_capacity(basis.len());
         for (i, (p, row)) in basis.iter().zip(&rows).enumerate() {
             let saved = std::mem::replace(&mut divisors[i], zero.clone());
-            let (r, row) = reduce_tracked(p, row.clone(), &divisors, &rows)?;
+            let (r, row) = reduce_tracked(p, row.clone(), &divisors, &rows);
             divisors[i] = saved;
             if !r.is_zero() {
                 reduced.push((r, row));
@@ -114,7 +115,7 @@ impl<F: Field> LiftBasis<F> {
         };
         let (quotients, remainder) = f
             .reorder(g.order.clone())
-            .divide_with_remainder(&self.basis)?;
+            .divide_with_remainder(&self.basis);
         if !remainder.is_zero() {
             return Ok(None);
         }
@@ -142,12 +143,8 @@ pub fn verify_lift<F: Field>(
         && generators
             .iter()
             .zip(cofactors)
-            .fold(f.clone(), |acc, (g, h)| acc.subtract(&h.multiply(g)))
+            .fold(f.clone(), |acc, (g, h)| &acc - &(h * g))
             .is_zero()
-}
-
-fn cofactor(lcm: &Monomial, lead: &Monomial) -> Result<Monomial, PolynomialError> {
-    lcm.divide(lead).ok_or(PolynomialError::DivisionFailed)
 }
 
 fn shift_subtract<F: Field>(
@@ -156,7 +153,7 @@ fn shift_subtract<F: Field>(
     b: &Polynomial<F>,
     mb: &Monomial,
 ) -> Polynomial<F> {
-    a.multiply_monomial(ma).subtract_multiple(&F::one(), mb, b)
+    a.mul_term(&F::one(), ma).sub_mul(&F::one(), mb, b)
 }
 
 /// `acc - sign * sum_j quotients[j] * rows[j]`, componentwise.
@@ -171,7 +168,7 @@ fn subtract_combination<F: Field>(
             let c = t.1.clone() * sign.clone();
             for (a, r) in acc.iter_mut().zip(row) {
                 if !r.is_zero() {
-                    *a = a.subtract_multiple(&c, &t.0, r);
+                    *a = a.sub_mul(&c, &t.0, r);
                 }
             }
         }
@@ -184,20 +181,14 @@ fn reduce_tracked<F: Field>(
     row: Row<F>,
     basis: &[Polynomial<F>],
     rows: &[Row<F>],
-) -> Result<(Polynomial<F>, Row<F>), PolynomialError> {
-    let (quotients, r) = p.divide_with_remainder(basis)?;
-    Ok(monic(
-        r,
-        subtract_combination(row, &quotients, rows, &F::one()),
-    ))
+) -> (Polynomial<F>, Row<F>) {
+    let (quotients, r) = p.divide_with_remainder(basis);
+    monic(r, subtract_combination(row, &quotients, rows, &F::one()))
 }
 
 fn monic<F: Field>(p: Polynomial<F>, row: Row<F>) -> (Polynomial<F>, Row<F>) {
-    match p.leading_coefficient().and_then(Field::inverse) {
-        Some(inv) => (
-            p.multiply_scalar(&inv),
-            row.iter().map(|h| h.multiply_scalar(&inv)).collect(),
-        ),
+    match p.lc().and_then(Field::inverse) {
+        Some(inv) => (p.scale(&inv), row.iter().map(|h| h.scale(&inv)).collect()),
         None => (p, row),
     }
 }

@@ -3,7 +3,6 @@
 //! From the paper "On an installation of Buchberger's algorithm."
 
 use crate::Field;
-use crate::PolynomialExt;
 use crate::groebner::CriticalPair;
 use crate::polynomial::Polynomial;
 use std::collections::HashSet;
@@ -21,10 +20,7 @@ pub fn filter_gm_pairs<F: Field>(
             if k == pair.j || k == pair.i {
                 continue;
             }
-            if let (Some(lm_i), Some(lm_k)) = (
-                basis[pair.i].leading_monomial(),
-                basis[k].leading_monomial(),
-            ) {
+            if let (Some(lm_i), Some(lm_k)) = (basis[pair.i].lm(), basis[k].lm()) {
                 let lcm_ik = lm_i.lcm(lm_k);
                 if lcm_ik != pair.lcm && pair.lcm.divides(&lcm_ik) {
                     to_remove[idx] = true;

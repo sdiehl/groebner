@@ -7,9 +7,9 @@ use super::trace::{LaneKernel, Lanes, PRIMES};
 use super::{F4Field, SparseRow, column_index, decode, reducers};
 use crate::finite_field::Zp;
 use crate::groebner::{GroebnerError, finish_basis};
-use crate::monomial::{Monomial, MonomialExt, divisibility_mask};
-use crate::polynomial::{Polynomial, term};
-use crate::{Field, ModularField, PolynomialExt, par};
+use crate::monomial::{Monomial, divisibility_mask};
+use crate::polynomial::Polynomial;
+use crate::{Field, ModularField, par};
 
 /// Minimize and, when `canonicalize` is set, interreduce with one Macaulay matrix: the tails
 /// of the minimal basis are the rows, and symbolic preprocessing supplies the reducers.
@@ -93,7 +93,7 @@ impl FinishPlan {
         };
         let leads: Vec<Monomial> = kept.iter().map(|g| g.terms[0].0.clone()).collect();
         let mut sorted: Vec<usize> = (0..keep.len()).collect();
-        sorted.sort_by(|&a, &b| leads[b].compare(&leads[a], &order));
+        sorted.sort_by(|&a, &b| order.compare(&leads[b], &leads[a]));
         Ok(Self {
             len: basis.len(),
             keep,
@@ -113,10 +113,10 @@ impl FinishPlan {
             .iter()
             .filter_map(|&i| basis[i].take())
             .map(|g| {
-                if g.leading_coefficient().is_some_and(num_traits::One::is_one) {
+                if g.lc().is_some_and(num_traits::One::is_one) {
                     g
                 } else {
-                    g.make_monic()
+                    g.monic()
                 }
             })
             .collect();
@@ -221,16 +221,16 @@ impl FinishPlan {
             self.sorted
                 .iter()
                 .map(|&k| {
-                    let lead = term(Zp::from_residue(1, primes[l]), self.leads[k].clone());
+                    let lead = (self.leads[k].clone(), Zp::from_residue(1, primes[l]));
                     let tail = reduced[k]
                         .columns
                         .iter()
                         .zip(&reduced[k].coefficients)
                         .filter(|(_, v)| v[l] != 0)
                         .map(|(&c, v)| {
-                            term(
-                                Zp::from_residue(v[l].into(), primes[l]),
+                            (
                                 self.columns[c as usize].clone(),
+                                Zp::from_residue(v[l].into(), primes[l]),
                             )
                         });
                     Polynomial {

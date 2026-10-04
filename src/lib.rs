@@ -16,7 +16,7 @@
 //! let ring = PolynomialRing::<PrimeField<32003>>::new(["x", "y"], MonomialOrder::GRevLex)?;
 //! let polys = ring.parse_many("x^2 - y; x*y - 1")?;
 //! let basis = groebner_basis_f4(polys, true)?;
-//! assert!(is_groebner_basis(&basis)?);
+//! assert!(is_groebner_basis(&basis));
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 //!
@@ -39,7 +39,7 @@
 //! let ideal = Ideal::new(ring.parse_many("x^2 + y^2 - 1; x - y")?)?;
 //! assert_eq!(ideal.vector_space_dimension(), Some(2));
 //! let lex = ideal.change_order(MonomialOrder::Lex)?;
-//! assert!(lex.contains(&ring.parse("2*y^2 - 1")?)?);
+//! assert!(lex.contains(&ring.parse("2*y^2 - 1")?));
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 
@@ -85,7 +85,7 @@ pub use groebner::{
 pub use groebner::{groebner_basis_parallel, is_groebner_basis_parallel};
 pub use ideal::Ideal;
 pub use lift::{LiftBasis, verify_lift};
-pub use monomial::{Monomial, MonomialExt, MonomialOrder};
+pub use monomial::{Monomial, MonomialOrder};
 #[cfg(feature = "parameters")]
 pub use parameters::Frac;
 pub use polycore::{Order, Poly, Ring};

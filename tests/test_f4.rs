@@ -28,7 +28,7 @@ fn assert_f4_matches_buchberger(vars: &[&str], order: MonomialOrder, expressions
         groebner_basis(polynomials.clone(), true).expect("Buchberger computation should succeed");
     let f4 = groebner_basis_f4(polynomials, true).expect("F4 computation should succeed");
 
-    assert!(is_groebner_basis(&f4).expect("F4 output should be a Groebner basis"));
+    assert!(is_groebner_basis(&f4));
     assert_eq!(f4, buchberger);
 }
 

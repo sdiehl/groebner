@@ -14,7 +14,7 @@ fn f4_over_rationals_matches_buchberger() {
     let f4 = groebner_basis_f4(polys.clone(), true).unwrap();
     let buchberger = groebner_basis(polys, true).unwrap();
     assert_eq!(f4, buchberger);
-    assert!(is_groebner_basis(&f4).unwrap());
+    assert!(is_groebner_basis(&f4));
 }
 
 #[test]

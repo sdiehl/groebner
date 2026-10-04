@@ -8,7 +8,7 @@ use super::{F4Field, SparseRow, compute, decode};
 use crate::finite_field::Zp;
 use crate::groebner::{GroebnerError, prepare_input};
 use crate::monomial::Monomial;
-use crate::polynomial::{Polynomial, term};
+use crate::polynomial::Polynomial;
 use crate::{ModularField, par};
 use polycore::modp::{inv as inv_mod, mul as mul_mod};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -196,7 +196,7 @@ impl F4Trace {
                             .zip(cs)
                             .filter(|(_, v)| v[l] != 0)
                             .map(|((m, _), v)| {
-                                term(Zp::from_residue(v[l].into(), primes[l]), m.clone())
+                                (m.clone(), Zp::from_residue(v[l].into(), primes[l]))
                             })
                             .collect(),
                         nvars,

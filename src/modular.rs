@@ -64,7 +64,7 @@ fn certify_basis(
     input: &[Polynomial<BigRational>],
     basis: &[Polynomial<BigRational>],
 ) -> Result<bool, GroebnerError> {
-    if !crate::is_groebner_basis(basis)? || input.iter().any(|p| !p.reduce(basis).is_zero()) {
+    if !crate::is_groebner_basis(basis) || input.iter().any(|p| !p.reduce(basis).is_zero()) {
         return Ok(false);
     }
     // Input reduction proves <input> is contained in <basis>. In particular,
@@ -595,7 +595,7 @@ mod tests {
         let polys = input("x^2; y");
         for candidate in [input("1"), input("x; y")] {
             // Both old checks pass, despite these candidates generating a larger ideal.
-            assert!(crate::is_groebner_basis(&candidate).unwrap());
+            assert!(crate::is_groebner_basis(&candidate));
             assert!(polys.iter().all(|p| p.reduce(&candidate).is_zero()));
             assert!(!certify_basis(&polys, &candidate).unwrap());
         }
@@ -605,7 +605,7 @@ mod tests {
     fn certification_rejects_smaller_ideals_and_non_groebner_generators() {
         assert!(!certify_basis(&input("x; y"), &input("x^2; y")).unwrap());
         let polys = input("x^2 - y; x*y - 1");
-        assert!(!crate::is_groebner_basis(&polys).unwrap());
+        assert!(!crate::is_groebner_basis(&polys));
         assert!(!certify_basis(&polys, &polys).unwrap());
     }
 

@@ -108,5 +108,5 @@ fn polycore_polynomials_work_without_conversion() {
     let ring = polycore::Ring::new(["x", "y"], polycore::Order::Lex);
     let polys: Vec<groebner::Polynomial<BigRational>> = ring.parse_many("x^2-y; x*y-1").unwrap();
     let basis: Vec<polycore::Poly<BigRational>> = groebner::groebner_basis_f4(polys, true).unwrap();
-    assert!(groebner::is_groebner_basis(&basis).unwrap());
+    assert!(groebner::is_groebner_basis(&basis));
 }

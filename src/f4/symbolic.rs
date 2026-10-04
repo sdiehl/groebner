@@ -6,7 +6,7 @@ use super::monomials::{
 };
 use super::{F4Field, Reducers, SparseRow, column_index, reducers};
 use crate::monomial::{Monomial, MonomialOrder, divisibility_mask};
-use crate::polynomial::{Polynomial, term};
+use crate::polynomial::Polynomial;
 use crate::{Field, par};
 use rustc_hash::{FxHashMap as HashMap, FxHashSet as HashSet};
 use std::borrow::Cow;
@@ -90,15 +90,10 @@ impl<F: Field> Element<F> {
                 .zip(self.coefficients)
                 .map(|(&k, c)| {
                     let m = cache.entry(k).or_insert_with(|| unpack(k, nvars));
-                    term(c, m.clone())
+                    (m.clone(), c)
                 })
                 .collect(),
-            _ => self
-                .monomials
-                .into_iter()
-                .zip(self.coefficients)
-                .map(|(m, c)| term(c, m))
-                .collect(),
+            _ => self.monomials.into_iter().zip(self.coefficients).collect(),
         };
         Polynomial {
             terms,

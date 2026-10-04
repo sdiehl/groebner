@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Remove `MonomialExt` and the rename-only methods of `PolynomialExt`; use the `polycore` names.
+- Take S-polynomials from `polycore` `Poly::spoly`.
+- Make `normal_form` and `divide_with_remainder` infallible and remove `PolynomialError`.
+- Return plain values from `Ideal::normal_form`, `Ideal::contains`, `Ideal::multiplication_matrix`, and `is_groebner_basis`.
+- Remove the `term` constructor; terms are `(monomial, coefficient)` pairs.
+
 ## 0.5.1 (2026-10-05)
 
 - Take Lehmer reconstruction and mixed radix CRT from `polycore` 0.1.3.

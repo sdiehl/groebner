@@ -1,6 +1,5 @@
 #![cfg(feature = "parallel")]
 
-use groebner::PolynomialExt;
 use groebner::{
     MonomialOrder, Polynomial, PolynomialRing, groebner_basis, groebner_basis_parallel,
     is_groebner_basis, is_groebner_basis_parallel,
@@ -13,7 +12,7 @@ where
 {
     let mut signature = basis
         .iter()
-        .filter_map(|polynomial| polynomial.leading_monomial())
+        .filter_map(|polynomial| polynomial.lm())
         .map(|monomial| monomial.exps().to_vec())
         .collect::<Vec<_>>();
     signature.sort();
@@ -36,8 +35,8 @@ fn parallel_buchberger_matches_serial_leading_terms() {
         groebner_basis_parallel(vec![f1, f2, f3], true).expect("parallel basis should compute");
 
     assert_eq!(leading_signature(&parallel), leading_signature(&serial));
-    assert!(is_groebner_basis(&parallel).expect("basis check should run"));
-    assert!(is_groebner_basis_parallel(&parallel).expect("parallel basis check should run"));
+    assert!(is_groebner_basis(&parallel));
+    assert!(is_groebner_basis_parallel(&parallel));
 }
 
 #[test]
@@ -47,5 +46,5 @@ fn parallel_checker_detects_non_basis() {
     let f1 = ring.parse("x^2 - y").expect("polynomial should parse");
     let f2 = ring.parse("x*y - 1").expect("polynomial should parse");
 
-    assert!(!is_groebner_basis_parallel(&[f1, f2]).expect("parallel basis check should run"));
+    assert!(!is_groebner_basis_parallel(&[f1, f2]));
 }

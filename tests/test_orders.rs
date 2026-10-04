@@ -1,6 +1,5 @@
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
-use groebner::MonomialExt;
 use groebner::{
     Monomial, MonomialOrder, PolynomialRing, PrimeField, groebner_basis, groebner_basis_f4,
     is_groebner_basis,
@@ -12,8 +11,8 @@ fn weighted_order_compares_by_weight_first() {
     let order = MonomialOrder::weighted(vec![1, 3], MonomialOrder::Lex);
     let a = Monomial::new(vec![2, 0]);
     let b = Monomial::new(vec![0, 1]);
-    assert_eq!(a.compare(&b, &order), Ordering::Less);
-    assert_eq!(a.compare(&b, &MonomialOrder::GrLex), Ordering::Greater);
+    assert_eq!(order.compare(&a, &b), Ordering::Less);
+    assert_eq!(MonomialOrder::GrLex.compare(&a, &b), Ordering::Greater);
 }
 
 #[test]
@@ -25,7 +24,7 @@ fn block_order_eliminates_first_block() {
     assert!(!MonomialOrder::GRevLex.eliminates(1));
     let a = Monomial::new(vec![1, 0, 0]);
     let b = Monomial::new(vec![0, 5, 5]);
-    assert_eq!(a.compare(&b, &order), Ordering::Greater);
+    assert_eq!(order.compare(&a, &b), Ordering::Greater);
 }
 
 #[test]
@@ -37,7 +36,7 @@ fn elimination_order_groebner_basis_projects() {
     let f4 = groebner_basis_f4(polys.clone(), true).unwrap();
     let buchberger = groebner_basis(polys, true).unwrap();
     assert_eq!(f4, buchberger);
-    assert!(is_groebner_basis(&f4).unwrap());
+    assert!(is_groebner_basis(&f4));
     let projected: Vec<_> = f4
         .iter()
         .filter(|p| p.terms.iter().all(|t| t.0.exps()[0] == 0))
@@ -52,6 +51,6 @@ fn weighted_order_groebner_basis_is_valid() {
     let ring = PolynomialRing::<PrimeField<32003>>::new(["x", "y"], order).unwrap();
     let polys = ring.parse_many("y^2 - x^3; x*y - 1").unwrap();
     let basis = groebner_basis_f4(polys.clone(), true).unwrap();
-    assert!(is_groebner_basis(&basis).unwrap());
+    assert!(is_groebner_basis(&basis));
     assert_eq!(basis, groebner_basis(polys, true).unwrap());
 }
