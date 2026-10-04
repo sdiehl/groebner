@@ -1,4 +1,4 @@
-# TODO for v0.2.1
+# TODO
 
 ## 1. Mathematical Structures & Generalizations
 
