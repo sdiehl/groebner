@@ -27,11 +27,9 @@ for p in &basis {
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
-See the [API documentation](https://docs.rs/groebner) for Buchberger, runtime primes, ideals, lift
-certificates, monomial orders, and parametric coefficients.
+See the [API documentation](https://docs.rs/groebner) for Buchberger, runtime primes, ideals, lift certificates, monomial orders, and parametric coefficients.
 
-Enable the `mimalloc` feature for maximal performance. It installs mimalloc as the global allocator,
-so leave it off if your binary already sets one.
+Enable the `mimalloc` feature for maximal performance. It installs mimalloc as the global allocator, so leave it off if your binary already sets one.
 
 ```toml
 groebner = { version = "0.5", features = ["mimalloc"] }
@@ -94,4 +92,3 @@ The [test suite](SUITE.md) is the full list of known Gröbner bases for a variet
 ## License
 
 MIT Licensed. Copyright 2024-2026 Stephen Diehl. See [LICENSE](LICENSE) for details.
-
