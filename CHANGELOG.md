@@ -1,8 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.5.1 (2026-10-05)
 
-- Take Lehmer reconstruction and mixed radix CRT from `polycore` 0.1.2.
+- Take Lehmer reconstruction and mixed radix CRT from `polycore` 0.1.3.
 - Widen rational replay rounds automatically when the first image is quick.
 - Reduce rows modulo primes above 2^31 with Shoup multiplication.
 - Reduce rows modulo primes above 2^62 with `polycore` `MulBy`.
