@@ -353,10 +353,42 @@ fn accumulate_lanes<'a>(
     tail: impl Iterator<Item = (&'a u32, &'a Lanes)>,
     c: Lanes,
 ) {
+    #[cfg(target_arch = "x86_64")]
+    if std::is_x86_feature_detected!("avx2") {
+        // SAFETY: AVX2 support was just detected.
+        #[allow(unsafe_code)]
+        return unsafe { accumulate_lanes_avx2(buf, tail, c) };
+    }
     for (&pc, pv) in tail {
         let cell = &mut buf[pc as usize];
         for l in 0..PRIMES {
             cell[l] += u64::from(c[l]) * u64::from(pv[l]);
+        }
+    }
+}
+
+// One widening multiply and add covers the four lanes.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2")]
+#[allow(unsafe_code)]
+unsafe fn accumulate_lanes_avx2<'a>(
+    buf: &mut [[u64; PRIMES]],
+    tail: impl Iterator<Item = (&'a u32, &'a Lanes)>,
+    c: Lanes,
+) {
+    use std::arch::x86_64::{
+        __m128i, __m256i, _mm_loadu_si128, _mm256_add_epi64, _mm256_cvtepu32_epi64,
+        _mm256_loadu_si256, _mm256_mul_epu32, _mm256_storeu_si256,
+    };
+    const { assert!(PRIMES == 4) };
+    // SAFETY: each pointer addresses a whole array of four `u32` or four `u64` lanes.
+    unsafe {
+        let m = _mm256_cvtepu32_epi64(_mm_loadu_si128(c.as_ptr().cast::<__m128i>()));
+        for (&pc, pv) in tail {
+            let cell = buf[pc as usize].as_mut_ptr().cast::<__m256i>();
+            let v = _mm256_cvtepu32_epi64(_mm_loadu_si128(pv.as_ptr().cast::<__m128i>()));
+            let acc = _mm256_add_epi64(_mm256_loadu_si256(cell), _mm256_mul_epu32(v, m));
+            _mm256_storeu_si256(cell, acc);
         }
     }
 }
