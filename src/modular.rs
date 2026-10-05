@@ -240,11 +240,22 @@ fn reconstruct(
     )
 }
 
-// A first round quicker than this learns a trace whose narrow replay rounds would
-// take about a third as long, mostly fork-join and reconstruction overhead, so the
-// replay rounds widen to one lane chunk per thread. Deciding before any replay avoids
-// overshooting the primes needed with a late wide round.
-const WIDE_LEARN: std::time::Duration = std::time::Duration::from_millis(150);
+// Runs a round and reports whether it was quick. A first round under 150ms learns a
+// trace whose narrow replay rounds would take about a third as long, mostly fork-join
+// and reconstruction overhead, so the replay rounds widen to one lane chunk per thread.
+// Deciding before any replay avoids overshooting the primes needed with a late wide
+// round. wasm32-unknown-unknown has no clock, so there replay stays narrow.
+fn timed(round: impl FnOnce() -> Result<(), GroebnerError>) -> Result<bool, GroebnerError> {
+    #[cfg(target_arch = "wasm32")]
+    return round().map(|()| false);
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        const WIDE_LEARN: std::time::Duration = std::time::Duration::from_millis(150);
+        let start = std::time::Instant::now();
+        round()?;
+        Ok(start.elapsed() < WIDE_LEARN)
+    }
+}
 
 // After the learned image, replay whole lane chunks and grow by about 12.5%, rather
 // than doubling the work near completion, unless the caller fixed the width or a quick
@@ -292,10 +303,9 @@ fn reconstruct_inner(
         if ps.is_empty() {
             return Err(GroebnerError::ReconstructionFailed);
         }
-        let start = std::time::Instant::now();
-        run.round(&ps, count == 0)?;
+        let quick = timed(|| run.round(&ps, count == 0))?;
         if count == 0 {
-            wide = widen && start.elapsed() < WIDE_LEARN;
+            wide = widen && quick;
         }
         let Some((key, candidates)) = run.candidates()? else {
             continue;

@@ -81,10 +81,11 @@ impl PackedIds {
     const EMPTY: u32 = u32::MAX;
 
     // The top bits of the product depend on every key bit, so nearby monomials spread.
+    // The length is a power of two; shift by its bit width, not usize's, for 32-bit targets.
     fn start(&self, k: u128) -> usize {
         let h = ((k as u64).wrapping_mul(GOLDEN_GAMMA) ^ (k >> 64) as u64)
             .wrapping_mul(SPLITMIX_MULTIPLIER);
-        (h >> (self.slots.len().leading_zeros() + 1)) as usize
+        (h >> (u64::BITS - self.slots.len().trailing_zeros())) as usize
     }
 
     pub(super) fn get(&self, k: u128) -> Option<u32> {
