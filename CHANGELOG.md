@@ -1,12 +1,14 @@
 # Changelog
 
-## Unreleased
+## 0.6.0 (2026-10-11)
 
 - Remove `MonomialExt` and the rename-only methods of `PolynomialExt`; use the `polycore` names.
 - Take S-polynomials from `polycore` `Poly::spoly`.
 - Make `normal_form` and `divide_with_remainder` infallible and remove `PolynomialError`.
 - Return plain values from `Ideal::normal_form`, `Ideal::contains`, `Ideal::multiplication_matrix`, and `is_groebner_basis`.
 - Remove the `term` constructor; terms are `(monomial, coefficient)` pairs.
+- Build for 32-bit and `wasm32-unknown-unknown` targets.
+- Bump `zippel-gcd` to 0.3 for the `parameters` feature.
 
 ## 0.5.1 (2026-10-05)
 

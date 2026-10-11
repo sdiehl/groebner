@@ -32,7 +32,7 @@ See the [API documentation](https://docs.rs/groebner) for Buchberger, runtime pr
 Enable the `mimalloc` feature for maximal performance. It installs mimalloc as the global allocator, so leave it off if your binary already sets one.
 
 ```toml
-groebner = { version = "0.5", features = ["mimalloc"] }
+groebner = { version = "0.6", features = ["mimalloc"] }
 ```
 
 ## Benchmarks
