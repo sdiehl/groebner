@@ -19,6 +19,7 @@ include = [
   "CHANGELOG.md",
   "LICENSE",
   "Cargo.toml",
+  "python/**/*.py",
 ]
 keywords = ["mathematics", "algebra", "polynomial", "groebner", "basis"]
 license = "MIT"
@@ -47,6 +48,7 @@ default = ["parallel"]
 parallel = ["dep:rayon", "polycore/parallel"]
 parameters = ["dep:zippel-gcd"]
 mimalloc = ["dep:mimalloc"]
+ffi = []
 
 [dev-dependencies]
 criterion = "0.8"

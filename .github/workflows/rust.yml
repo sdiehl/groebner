@@ -28,6 +28,10 @@ jobs:
         run: cargo test --locked --doc --verbose
       - name: Run example
         run: cargo run --locked --example basic
+      - name: Build cdylib
+        run: cargo rustc --locked --release --lib --features ffi --crate-type cdylib
+      - name: Run Python tests
+        run: PYTHONPATH=python python3 -m unittest discover -s python/tests
 
   corpus:
     name: Corpus (${{ matrix.mode }})

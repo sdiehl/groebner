@@ -26,3 +26,6 @@ target/
 /target
 
 .DS_Store
+__pycache__/
+build/
+*.egg-info/
