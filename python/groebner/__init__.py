@@ -1,24 +1,45 @@
-"""Python bindings for groebner over its C API, using ctypes."""
+"""Groebner bases over Q and GF(p), bound to the Rust library with ctypes.
+
+>>> ring = Ring(["x", "y"], Order.LEX)
+>>> ring.groebner_basis(["x^2 + y^2 - 1", "x - y"])
+['x - y', 'y^2 - 1/2']
+"""
+
+from __future__ import annotations
 
 import ctypes as C
 import os
 import re
 import sys
+import weakref
+from enum import IntEnum
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
-__all__ = ["GroebnerError", "contains", "groebner_basis", "reduce"]
+if TYPE_CHECKING:
+    from collections.abc import Iterable, Sequence
+
+__all__ = ["GroebnerError", "Order", "Ring", "contains", "groebner_basis", "reduce"]
+
+
+class Order(IntEnum):
+    """Monomial order, with values matching `GbOrder` in the C ABI."""
+
+    LEX = 0
+    GRLEX = 1
+    GREVLEX = 2
 
 
 class GroebnerError(ValueError):
-    pass
+    """A polynomial failed to parse or a computation failed."""
 
 
-def _load():
+def _load() -> C.CDLL:
     name = {"darwin": "libgroebner.dylib", "win32": "groebner.dll"}.get(
         sys.platform, "libgroebner.so"
     )
     here = Path(__file__).parent
-    bundled = [p for p in here.iterdir() if p.suffix in (".so", ".pyd", ".dylib")]
+    bundled = [p for p in here.iterdir() if p.suffix in {".so", ".pyd", ".dylib"}]
     for path in [
         os.environ.get("GROEBNER_LIB"),
         *bundled,
@@ -26,65 +47,141 @@ def _load():
     ]:
         if path and Path(path).exists():
             return C.CDLL(str(path))
-    raise OSError(
+    msg = (
         f"{name} not found; build it with "
         "`cargo rustc --release --lib --features ffi --crate-type cdylib`"
     )
+    raise OSError(msg)
 
 
 _lib = _load()
-_S, _OUT = C.c_char_p, C.POINTER(C.c_void_p)
-for fn, args in [
-    ("gb_groebner_basis", [_S, _S, C.c_uint64, _S, _OUT]),
-    ("gb_reduce", [_S, _S, C.c_uint64, _S, _S, _OUT]),
-]:
-    f = getattr(_lib, fn)
-    f.restype, f.argtypes = C.c_int, args
-_lib.gb_string_free.restype, _lib.gb_string_free.argtypes = None, [C.c_void_p]
-
-_IDENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+_Str = C.c_char_p
+_Strs = C.POINTER(_Str)
+_Out = C.POINTER(C.c_void_p)
 
 
-def _args(polys, vars, order, modulus, *extra):
-    polys = [polys] if isinstance(polys, str) else list(polys)
-    if vars is None:
-        vars = dict.fromkeys(_IDENT.findall(" ".join([*polys, *extra])))
-    elif isinstance(vars, str):
-        vars = vars.replace(",", " ").split()
-    return [
-        ",".join(vars).encode(),
-        order.encode(),
-        modulus or 0,
-        "; ".join(polys).encode(),
-    ]
+def _bind(name: str, *argtypes: Any, restype: Any = C.c_int) -> Any:
+    f = getattr(_lib, name)
+    f.argtypes, f.restype = list(argtypes), restype
+    return f
 
 
-def _call(fn, *args):
+_ring_new = _bind("gb_ring_new", _Strs, C.c_size_t, C.c_int, C.c_uint64, _Out, _Out)
+_ring_free = _bind("gb_ring_free", C.c_void_p, restype=None)
+_groebner_basis = _bind("gb_groebner_basis", C.c_void_p, _Strs, C.c_size_t, _Out)
+_reduce = _bind("gb_reduce", C.c_void_p, _Strs, C.c_size_t, _Str, _Out)
+_string_free = _bind("gb_string_free", C.c_void_p, restype=None)
+
+
+def _strings(xs: Iterable[str]) -> tuple[C.Array[C.c_char_p], int]:
+    if isinstance(xs, str):
+        msg = "expected a sequence of strings, not a single string"
+        raise TypeError(msg)
+    encoded = [x.encode() for x in xs]
+    return (_Str * len(encoded))(*encoded), len(encoded)
+
+
+def _call(fn: Any, *args: Any) -> str:
+    """Call `fn` with a trailing `out` string, raising `GroebnerError` on failure."""
     out = C.c_void_p()
-    code = fn(*args, C.byref(out))
+    status = fn(*args, C.byref(out))
     try:
-        text = C.string_at(out).decode() if out else ""
+        text = C.string_at(out).decode() if out.value else ""
     finally:
-        _lib.gb_string_free(out)
-    if code != 0:
+        _string_free(out)
+    if status:
         raise GroebnerError(text)
     return text
 
 
-def groebner_basis(polys, vars=None, order="grevlex", modulus=None):
-    """Reduced Groebner basis of `polys` over Q, or GF(modulus) when it is given.
+class Ring:
+    """Polynomials in named variables over Q, or over GF(modulus) when it is given."""
 
-    `vars` defaults to the identifiers of `polys` in order of first appearance.
+    def __init__(
+        self,
+        variables: Sequence[str],
+        order: Order = Order.GREVLEX,
+        modulus: int | None = None,
+    ) -> None:
+        self.variables = tuple(variables)
+        self.order = Order(order)
+        self.modulus = modulus
+        handle = C.c_void_p()
+        _call(
+            _ring_new,
+            *_strings(self.variables),
+            self.order,
+            modulus or 0,
+            C.byref(handle),
+        )
+        self._handle = handle
+        weakref.finalize(self, _ring_free, handle)
+
+    def __repr__(self) -> str:
+        field = f"GF({self.modulus})" if self.modulus else "Q"
+        return f"Ring({list(self.variables)}, {self.order.name}, {field})"
+
+    def groebner_basis(self, polys: Iterable[str]) -> list[str]:
+        """Reduced Groebner basis of the ideal generated by `polys`."""
+        text = _call(_groebner_basis, self._handle, *_strings(polys))
+        return text.split("\n") if text else []
+
+    def reduce(self, f: str, polys: Iterable[str]) -> str:
+        """Normal form of `f` modulo the ideal generated by `polys`."""
+        return _call(_reduce, self._handle, *_strings(polys), f.encode())
+
+    def contains(self, f: str, polys: Iterable[str]) -> bool:
+        """Whether `f` lies in the ideal generated by `polys`."""
+        return self.reduce(f, polys) == "0"
+
+
+_IDENT = re.compile(r"[A-Za-z_]\w*")
+
+
+def _ring(
+    polys: Sequence[str],
+    variables: Sequence[str] | None,
+    order: Order,
+    modulus: int | None,
+) -> Ring:
+    if variables is None:
+        variables = list(dict.fromkeys(_IDENT.findall(" ".join(polys))))
+    return Ring(variables, order, modulus)
+
+
+def groebner_basis(
+    polys: Sequence[str],
+    variables: Sequence[str] | None = None,
+    *,
+    order: Order = Order.GREVLEX,
+    modulus: int | None = None,
+) -> list[str]:
+    """Reduced Groebner basis of `polys`.
+
+    `variables` defaults to the identifiers in `polys` in order of first appearance.
     """
-    text = _call(_lib.gb_groebner_basis, *_args(polys, vars, order, modulus))
-    return text.split("\n") if text else []
+    return _ring(polys, variables, order, modulus).groebner_basis(polys)
 
 
-def reduce(f, polys, vars=None, order="grevlex", modulus=None):
+def reduce(
+    f: str,
+    polys: Sequence[str],
+    variables: Sequence[str] | None = None,
+    *,
+    order: Order = Order.GREVLEX,
+    modulus: int | None = None,
+) -> str:
     """Normal form of `f` modulo the ideal generated by `polys`."""
-    return _call(_lib.gb_reduce, *_args(polys, vars, order, modulus, f), f.encode())
+    return _ring([*polys, f], variables, order, modulus).reduce(f, polys)
 
 
-def contains(f, polys, vars=None, order="grevlex", modulus=None):
+def contains(
+    f: str,
+    polys: Sequence[str],
+    variables: Sequence[str] | None = None,
+    *,
+    order: Order = Order.GREVLEX,
+    modulus: int | None = None,
+) -> bool:
     """Whether `f` lies in the ideal generated by `polys`."""
-    return reduce(f, polys, vars, order, modulus) == "0"
+    return reduce(f, polys, variables, order=order, modulus=modulus) == "0"

@@ -11,6 +11,7 @@ version = re.search(r'^version = "(.+)"', Path("Cargo.toml").read_text(), re.MUL
 setup(
     version=version,
     packages=["groebner"],
+    package_data={"groebner": ["py.typed"]},
     package_dir={"": "python"},
     rust_extensions=[
         RustExtension(

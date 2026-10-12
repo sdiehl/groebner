@@ -12,10 +12,10 @@ env:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Build
         run: cargo build --locked --verbose
       - name: Run tests
@@ -33,9 +33,22 @@ jobs:
       - name: Run Python tests
         run: PYTHONPATH=python python3 -m unittest discover -s python/tests
 
+  python:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.3.0
+      - name: Ruff format
+        run: uvx ruff@0.17.0 format --check python setup.py
+      - name: Ruff lint
+        run: uvx ruff@0.17.0 check python setup.py
+      - name: Mypy
+        run: uvx mypy@2.4.0 --strict python/groebner
+
   corpus:
     name: Corpus (${{ matrix.mode }})
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 15
     strategy:
       fail-fast: false
@@ -48,9 +61,9 @@ jobs:
     env:
       RAYON_NUM_THREADS: 2
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Cache corpus build
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry
@@ -73,7 +86,7 @@ jobs:
           --out corpus-${{ matrix.mode }}.tsv
       - name: Upload corpus results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: corpus-${{ matrix.mode }}
           path: corpus-${{ matrix.mode }}.tsv

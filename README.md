@@ -41,11 +41,13 @@ Use the `ctypes` wrapper over the C library. Polynomials are strings, over Q by 
 GF(p) with `modulus`:
 
 ```python
-from groebner import contains, groebner_basis
+from groebner import Order, Ring, contains, groebner_basis
 
-groebner_basis(["x^2 + y^2 - 1", "x - y"], order="lex")  # ['x - y', 'y^2 - 1/2']
-groebner_basis("x^2 - y; x*y - 1", vars="x, y", modulus=32003)
+groebner_basis(["x^2 + y^2 - 1", "x - y"], order=Order.LEX)  # ['x - y', 'y^2 - 1/2']
 contains("2*y^2 - 1", ["x^2 + y^2 - 1", "x - y"])  # True
+
+ring = Ring(["x", "y"], Order.LEX, modulus=32003)
+ring.groebner_basis(["x^2 - y", "x*y - 1"])  # ['x + 32002*y^2', 'y^3 + 32002']
 ```
 
 To depend on it from a `pyproject.toml` (builds from source, requires a Rust toolchain):
