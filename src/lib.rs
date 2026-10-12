@@ -54,6 +54,8 @@ struct ReadmeDoctests;
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 pub mod f4;
+#[cfg(feature = "ffi")]
+pub mod ffi;
 pub mod modular;
 mod par;
 pub use modular::{RationalOptions, groebner_basis_f4_rational, groebner_basis_f4_rational_with};

@@ -35,6 +35,46 @@ Enable the `mimalloc` feature for maximal performance. It installs mimalloc as t
 groebner = { version = "0.6", features = ["mimalloc"] }
 ```
 
+## Python
+
+Use the `ctypes` wrapper over the C library. Polynomials are strings, over Q by default or
+GF(p) with `modulus`:
+
+```python
+from groebner import Order, Ring, contains, groebner_basis
+
+groebner_basis(["x^2 + y^2 - 1", "x - y"], order=Order.LEX)  # ['x - y', 'y^2 - 1/2']
+contains("2*y^2 - 1", ["x^2 + y^2 - 1", "x - y"])  # True
+
+ring = Ring(["x", "y"], Order.LEX, modulus=32003)
+ring.groebner_basis(["x^2 - y", "x*y - 1"])  # ['x + 32002*y^2', 'y^3 + 32002']
+```
+
+To depend on it from a `pyproject.toml` (builds from source, requires a Rust toolchain):
+
+```toml
+[project]
+dependencies = [
+    "groebner @ git+https://github.com/sdiehl/groebner.git@v0.7.0",
+]
+```
+
+Or with uv:
+
+```bash
+uv add git+https://github.com/sdiehl/groebner --tag v0.7.0
+```
+
+which records it in `pyproject.toml` as:
+
+```toml
+[project]
+dependencies = ["groebner"]
+
+[tool.uv.sources]
+groebner = { git = "https://github.com/sdiehl/groebner", tag = "v0.7.0" }
+```
+
 ## Benchmarks
 
 Reduced basis with `groebner_basis_f4` over GF(32003) in GRevLex, on Apple M5 silicon (10 cores).
