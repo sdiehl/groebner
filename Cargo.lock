@@ -406,9 +406,9 @@ dependencies = [
 
 [[package]]
 name = "polycore"
-version = "0.1.5"
+version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "099cfc65be894b05fd00e7092c4140174bd2582cd7d728cd2d5ac8016b4bcd71"
+checksum = "dd196335a901f8dbcd7f593313b1b57221d23b241373efc1f7abbecc151fbc2f"
 dependencies = [
  "machine-prime",
  "num-bigint",
