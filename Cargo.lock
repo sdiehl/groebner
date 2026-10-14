@@ -420,6 +420,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "polyfactor"
+version = "0.1.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c0f1fa97df38bdc38b2c629de9b6d4b62a94cf66b1cad3f810a2e181c4395d10"
+dependencies = [
+ "num-bigint",
+ "num-integer",
+ "num-rational",
+ "num-traits",
+ "polycore",
+]
+
+[[package]]
 name = "proc-macro2"
 version = "1.0.107"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -748,9 +761,9 @@ dependencies = [
 
 [[package]]
 name = "zippel-gcd"
-version = "0.3.0"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0e294ccc2a37d1ee2de32f9db51302005415a4ea9d27e267ecdc4546ac271983"
+checksum = "3e11630d30dc810c97982d2a02695f77f0cc77acdcb439465bab33e8c4b49f30"
 dependencies = [
  "num-bigint",
  "num-integer",
@@ -762,11 +775,12 @@ dependencies = [
 
 [[package]]
 name = "zippel-interp"
-version = "0.3.0"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ece1082897d80f1de8869f9aedf448bb5d9fa9d30cdfbde62a4324a5224ac154"
+checksum = "a62789af9a2f613510950bcf6c33b3b0fb5b8ab2c0fa7fe6e552e38240275d3b"
 dependencies = [
  "polycore",
+ "polyfactor",
 ]
 
 [[package]]
