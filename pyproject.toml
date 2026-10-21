@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68", "setuptools-rust>=1.9"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "groebner"
+dynamic = ["version"]
+description = "Groebner bases for multivariate polynomial ideals"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.9"
+
+[project.urls]
+Repository = "https://github.com/sdiehl/groebner"
+
+[tool.cibuildwheel]
+build = "cp311-*"
+skip = "*-musllinux_*"
+test-command = "python -m unittest discover -s {project}/python/tests"
+
+[tool.cibuildwheel.linux]
+before-all = "curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain none"
+environment = { PATH = "$HOME/.cargo/bin:$PATH" }
+
+[tool.cibuildwheel.macos]
+archs = ["x86_64", "arm64"]
+environment = { MACOSX_DEPLOYMENT_TARGET = "10.12" }
+before-all = "rustup target add x86_64-apple-darwin aarch64-apple-darwin"
+
+[tool.cibuildwheel.windows]
+archs = ["AMD64"]

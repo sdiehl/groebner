@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Add Python bindings.
+
 ## 0.6.0 (2026-10-11)
 
 - Remove `MonomialExt` and the rename-only methods of `PolynomialExt`; use the `polycore` names.
