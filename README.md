@@ -127,7 +127,7 @@ cargo test
 cargo bench --features mimalloc
 ```
 
-The [test suite](SUITE.md) is the full list of known Gröbner bases for a variety of large multivariate polynomial systems from several textbooks and some trusted Mathematica generated corpus. Both the Rust algo implementations have to correctly produce the same textbook outputs and Mathematica for all inputs, up to re-ordering.
+The [test suite](notes/SUITE.md) is the full list of known Gröbner bases for a variety of large multivariate polynomial systems from several textbooks and some trusted Mathematica generated corpus. Both the Rust algo implementations have to correctly produce the same textbook outputs and Mathematica for all inputs, up to re-ordering.
 
 ## License
 
