@@ -761,9 +761,9 @@ dependencies = [
 
 [[package]]
 name = "zippel-gcd"
-version = "0.4.0"
+version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3e11630d30dc810c97982d2a02695f77f0cc77acdcb439465bab33e8c4b49f30"
+checksum = "469e1e8e1748df56fec07d18f1669247a6d6d7a8265701781b643821f0956d01"
 dependencies = [
  "num-bigint",
  "num-integer",
@@ -775,9 +775,9 @@ dependencies = [
 
 [[package]]
 name = "zippel-interp"
-version = "0.4.0"
+version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a62789af9a2f613510950bcf6c33b3b0fb5b8ab2c0fa7fe6e552e38240275d3b"
+checksum = "37b553840fcb8dda21f75a8a2c4120100485ad298a3934138e916ae0bfe988d3"
 dependencies = [
  "polycore",
  "polyfactor",
